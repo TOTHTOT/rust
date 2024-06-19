@@ -12,3 +12,8 @@ Cargo.lock
 
 # MSVC Windows builds of rustc generate these, which store debugging information
 *.pdb
+learn/0.tmp/tmp_project/
+learn/Celsius_Fahrenheit_temperature/
+learn/enum_test/
+learn/restaurant/
+learn/vector_test/
