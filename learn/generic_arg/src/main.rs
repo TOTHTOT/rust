@@ -9,6 +9,7 @@ fn largest<T: std::cmp::PartialOrd>(list: &[T]) -> &T {
     max
 }
 
+
 fn main() {
     let num_list = vec![1, 2, 3, 4, 5];
     println!("largest = {}", largest(&num_list));
