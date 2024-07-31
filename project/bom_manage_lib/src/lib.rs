@@ -2,7 +2,7 @@
  * @Description: 电子元件管理程序库
  * @Author: TOTHTOT
  * @Date: 2024-07-05 13:41:11
- * @LastEditTime: 2024-07-31 15:00:17
+ * @LastEditTime: 2024-07-31 15:13:52
  * @LastEditors: TOTHTOT
  * @FilePath: \rust\project\bom_manage_lib\src\lib.rs
  */
@@ -26,6 +26,37 @@ pub mod bom_manage {
             println!("{}: {}, {}: {}", module_path!(), file!(), line!(), format_args!($($arg)*));
         };
     }
+
+    // 数据库表头宏
+    macro_rules! insert_into_template {
+        () => {
+            "INSERT INTO {} (describe, model, number, element_type, state) VALUES (?, ?, ?, ?, ?)"
+        };
+    }
+    // 读取数据库中所有数据命令
+    macro_rules! get_all_template {
+        () => {
+            "SELECT describe, model, number, element_type, state FROM {}"
+        };
+    }
+    // 读取数据库中所有数据命令
+    macro_rules! get_row_num_template {
+        () => {
+            "SELECT COUNT(*) FROM {}"
+        };
+    }
+    // 读取数据库中所有数据命令, get_row_num_template 失败时执行
+    macro_rules! get_row_num_template_fail {
+        () => {
+            "SELECT 0"
+        };
+    }
+    // 创建表头宏命令
+    macro_rules! create_table_template {
+        () => {
+            "CREATE TABLE IF NOT EXISTS bom_data (id INTEGER PRIMARY KEY, describe TEXT NOT NULL, model TEXT NOT NULL, number INTEGER NOT NULL, element_type INTEGER NOT NULL, state INTEGER NOT NULL)"        };
+    }
+
     // 元件类别
     #[derive(Debug)]
     pub enum ElementType {
@@ -153,8 +184,7 @@ pub mod bom_manage {
         pub fn write_hm_to_database(self: &Self, map: &HashMap<String, Element>){
             // 将哈希表写入数据库
             for (_key, value) in map.iter() {
-                self.conn.execute(format!("INSERT INTO {} (describe, model, number, element_type, state) 
-                                    VALUES (?, ?, ?, ?, ?)", self.tables).as_str(), 
+                self.conn.execute(format!(insert_into_template!(), self.tables).as_str(), 
                                     &[
                                         &value.describe, 
                                         &value.model, 
@@ -174,7 +204,7 @@ pub mod bom_manage {
          */        
         pub fn read_hm_from_database(self: &Self) -> Result<HashMap<String, Element>, Box<dyn Error>> {
              // 准备 SQL 查询语句
-            let mut stmt = self.conn.prepare(format!("SELECT describe, model, number, element_type, state FROM {}", self.tables).as_str()).expect("Failed to prepare statement");
+            let mut stmt = self.conn.prepare(format!(get_all_template!(), self.tables).as_str()).expect("Failed to prepare statement");
             // 执行查询语句，迭代处理每一行结果, data_iter 是个迭代器
             let data_iter = stmt.query_map([], |row| {
                 Ok(Element {
@@ -231,13 +261,7 @@ pub mod bom_manage {
         match Connection::open(filepath) {
             Ok(file) => {
                 // 写入表头
-                match file.execute("CREATE TABLE IF NOT EXISTS bom_data (
-                        id INTEGER PRIMARY KEY,
-                        describe TEXT NOT NULL,
-                        model TEXT NOT NULL,
-                        number INTEGER NOT NULL,
-                        element_type INTEGER NOT NULL,
-                        state INTEGER NOT NULL)", []) {
+                match file.execute(create_table_template!(), []) {
                     Ok(_) => {
                         Ok(file)
                     },
@@ -310,9 +334,9 @@ pub mod bom_manage {
      * @Date: 2024-07-30 16:51:00
      */
     fn database_get_line(conn: &Connection, tables: &str) -> u64 {
-        let mut stmt = conn.prepare(format!("SELECT COUNT(*) FROM {tables}").as_str()).unwrap_or_else(|err| {
+        let mut stmt = conn.prepare(format!(get_row_num_template!(), tables).as_str()).unwrap_or_else(|err| {
             info_log!("{err}");
-            conn.prepare("SELECT 0").expect("Failed to prepare fallback statement")
+            conn.prepare(get_row_num_template_fail!()).expect("Failed to prepare fallback statement")
         });
         let count: u64 = stmt.query_row([], |row| row.get(0)).unwrap_or_else(|err| {
             info_log!("{err}");
