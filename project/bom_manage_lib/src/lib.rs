@@ -2,7 +2,7 @@
  * @Description: 电子元件管理程序库
  * @Author: TOTHTOT
  * @Date: 2024-07-05 13:41:11
- * @LastEditTime: 2024-07-31 15:13:52
+ * @LastEditTime: 2024-07-31 18:28:20
  * @LastEditors: TOTHTOT
  * @FilePath: \rust\project\bom_manage_lib\src\lib.rs
  */
@@ -30,7 +30,7 @@ pub mod bom_manage {
     // 数据库表头宏
     macro_rules! insert_into_template {
         () => {
-            "INSERT INTO {} (describe, model, number, element_type, state) VALUES (?, ?, ?, ?, ?)"
+            "INSERT OR IGNORE INTO {} (describe, model, number, element_type, state) VALUES (?, ?, ?, ?, ?)"
         };
     }
     // 读取数据库中所有数据命令
@@ -237,7 +237,7 @@ pub mod bom_manage {
             for result in data_iter {
                 match result {
                     Ok(element) => {
-                        map.insert(element.describe.clone(), element);
+                        map.insert(element.model.clone(), element);
                     },
                     Err(_) => {
                         info_log!("Failed to get element");
@@ -354,6 +354,7 @@ pub mod bom_manage {
      * @author: TOTHTOT
      * @Date: 2024-07-31 09:42:17
      */
+    #[allow(dead_code)]
     fn test_write_to_database(database: &DataBaseInfo) {
         let mut map:HashMap<String, Element> = HashMap::new();
         let element = Element {
@@ -385,7 +386,8 @@ pub mod bom_manage {
      * @return {*}
      * @author: TOTHTOT
      * @Date: 2024-07-31 14:31:01
-     */    
+     */
+    #[allow(dead_code)]
     fn test_read_from_database(database: &DataBaseInfo) -> Result<HashMap<String, Element>, String> {
         // 从数据库中读取数据
         let map: HashMap<String, Element> = match database.read_hm_from_database() {
@@ -423,7 +425,7 @@ pub mod bom_manage {
             Ok(_) => { // 文件存在且有效, 读取文件内容
                 match open_or_create_data_file(data_filepath) {
                     Ok(content) => {
-                        let map:HashMap<String, Element> = HashMap::new();
+                        let mut map:HashMap<String, Element> = HashMap::new();
                         // 行数, 根据行数判断是否需要读取数据到哈希表中, 先借用 content 避免所有权问题
                         let count = database_get_line(&content, table_name);
                         let baseinof = DataBaseInfo {
@@ -434,11 +436,19 @@ pub mod bom_manage {
 
                         if count > 0 {
                             // 读取数据到哈希表
-                            let _ = test_read_from_database(&baseinof);
+                            map = match baseinof.read_hm_from_database() {
+                                Ok(map) => {
+                                    map
+                                },
+                                Err(err) => {
+                                    info_log!("{err}");
+                                    return Err(format!("Error reading from database: {}", err));
+                                },
+                            };
                         }
                         else {
                             info_log!("{table_name} 表为空");
-                            test_write_to_database(&baseinof);
+                            // test_write_to_database(&baseinof);
                         }
                         Ok((baseinof, map))
                     },
@@ -468,6 +478,7 @@ pub mod bom_manage {
         }
     }
 
+    // pub fn p
     // Element 结构体的方法
     impl Element {
          /**
@@ -507,25 +518,30 @@ mod tests {
     fn it_works() {
         // 数据文件地址
         const DATA_FILE: &str = "data_resource.db";
+        // 表名
         const TABLE_NAME: &str = "bom_data";
         let mut element_map: HashMap<String, Element>;
-        let _databaseinfo: DataBaseInfo;
+        let databaseinfo: DataBaseInfo;
         match bom_manage::new(DATA_FILE, TABLE_NAME) {
             Ok((my_databaseinfo, my_element_map)) => {
-                _databaseinfo = my_databaseinfo;
+                databaseinfo = my_databaseinfo;
                 element_map = my_element_map;
             },
             Err(error) => panic!("Error: {error}"),
         };
-
+        // 遍历初始化是的哈希表
+        for (key, value) in element_map.iter() {
+            println!("Key: {key}, Value: {:#?}", value);
+        }
+        
+        // 测试增加元件
         let res = Element{
             describe :"电阻".to_string(),
-            model :"R10K".to_string(),
+            model :"R20K".to_string(),
             number : 100,
             element_type : ElementType::Resistor,
             state : ElementStatus::ALOT,
         };
-        
         let cap = Element{
             describe :"电容".to_string(),
             model :"C10uF".to_string(),
@@ -533,15 +549,21 @@ mod tests {
             element_type : ElementType::Capacitor,
             state : ElementStatus::ALOT,
         };
+        let cap2 = Element{
+            describe :"电容".to_string(),
+            model :"C10uF".to_string(),
+            number : 120,
+            element_type : ElementType::Capacitor,
+            state : ElementStatus::ALOT,
+        };
         element_map.insert(res.model.clone(), res);
         element_map.insert(cap.model.clone(), cap);
-
-        // 输出内容
-        for (model, element) in element_map.iter() {
-            println!("{}: {}", model, element.describe);
-            println!("{}: {}", model, element.number);
-            println!("{}: {:?}", model, element.element_type);
-            println!("{}: {:?}", model, element.state);
+        element_map.insert(cap2.model.clone(), cap2);
+        databaseinfo.write_hm_to_database(&element_map);
+        println!("测试增加元件成功");
+        // 遍历初始化是的哈希表
+        for (key, value) in element_map.iter() {
+            println!("Key: {key}, Value: {:#?}", value);
         }
     }
 }
