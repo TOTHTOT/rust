@@ -2,7 +2,7 @@
  * @Description: 电子元件管理程序库
  * @Author: TOTHTOT
  * @Date: 2024-07-05 13:41:11
- * @LastEditTime: 2024-07-31 18:28:20
+ * @LastEditTime: 2024-08-01 16:18:37
  * @LastEditors: TOTHTOT
  * @FilePath: \rust\project\bom_manage_lib\src\lib.rs
  */
@@ -54,7 +54,14 @@ pub mod bom_manage {
     // 创建表头宏命令
     macro_rules! create_table_template {
         () => {
-            "CREATE TABLE IF NOT EXISTS bom_data (id INTEGER PRIMARY KEY, describe TEXT NOT NULL, model TEXT NOT NULL, number INTEGER NOT NULL, element_type INTEGER NOT NULL, state INTEGER NOT NULL)"        };
+            "CREATE TABLE IF NOT EXISTS bom_data (id INTEGER PRIMARY KEY, describe TEXT NOT NULL, model TEXT NOT NULL, number INTEGER NOT NULL, element_type INTEGER NOT NULL, state INTEGER NOT NULL)"
+        };
+    }
+    // 删除表内所有内容
+    macro_rules! delete_all_template {
+        () => {
+            "DELETE FROM {}"
+        };
     }
 
     // 元件类别
@@ -173,7 +180,7 @@ pub mod bom_manage {
     impl DataBaseInfo {
         /**
          * @name: write_hm_to_database
-         * @msg: 写入数据到sqlite数据库
+         * @msg: 写入数据到sqlite数据库, 先删除所有数据再写入数据
          * @param {&HashMap<String, Element>} map
          * @param {*} conn 连接的sqlite 数据库
          * @param {*} tables 表名
@@ -181,7 +188,12 @@ pub mod bom_manage {
          * @author: TOTHTOT
          * @Date: 2024-07-31 09:48:28
          */    
-        pub fn write_hm_to_database(self: &Self, map: &HashMap<String, Element>){
+        pub fn write_hm_to_database(self: &Self, map: &HashMap<String, Element>) -> Result<(), Box<dyn Error>> {
+            
+            if let Err(e) = self.conn.execute(format!(delete_all_template!(), self.tables).as_str(), []) {
+                info_log!("Failed to delete data: {}", e);
+                return Err("Failed to delete data".into());
+             };
             // 将哈希表写入数据库
             for (_key, value) in map.iter() {
                 self.conn.execute(format!(insert_into_template!(), self.tables).as_str(), 
@@ -192,6 +204,7 @@ pub mod bom_manage {
                                         &value.element_type.to_string(), 
                                         &value.state.to_string()],).expect("Failed to insert data");
             }
+            Ok(())
         }
 
         /**
@@ -247,6 +260,143 @@ pub mod bom_manage {
             }
             Ok(map)
         }
+    }
+    
+    // bom控制结构体
+    pub struct BomManageCtrl {
+        pub database: DataBaseInfo,
+        pub element_map: HashMap<String, Element>,
+    }
+
+    // BomManageCtrl 的方法
+    impl BomManageCtrl {
+        /**
+         * @name: new
+         * @msg: 创建时判断是否有数据文件, 
+         * 1. 有的话就读取并创建哈希表, 将数据写入, 
+         * 2. 没数据文件就创建哈希表等待写入数据到表中.
+         * @param {&'a str} data_filepath 数据库地址
+         * @param {&'a str} table_name 数据库表名
+         * @return {*}
+         * @author: TOTHTOT
+         * @Date: 2024-07-29 11:11:17
+         */
+        pub fn new<'a>(data_filepath: &'a str, table_name: &'a str) -> Result<BomManageCtrl, String> { 
+            // 判断文件是否存在且数据有效
+            match check_datafile(data_filepath) {
+                Ok(_) => { // 文件存在且有效, 读取文件内容
+                    match open_or_create_data_file(data_filepath) {
+                        Ok(content) => {
+                            let mut map:HashMap<String, Element> = HashMap::new();
+                            // 行数, 根据行数判断是否需要读取数据到哈希表中, 先借用 content 避免所有权问题
+                            let count = database_get_line(&content, table_name);
+                            let baseinof = DataBaseInfo {
+                                conn: content,
+                                filepath: data_filepath.to_string(),
+                                tables: table_name.to_string(),
+                            };
+
+                            if count > 0 {
+                                // 读取数据到哈希表
+                                map = match baseinof.read_hm_from_database() {
+                                    Ok(map) => {
+                                        map
+                                    },
+                                    Err(err) => {
+                                        info_log!("{err}");
+                                        return Err(format!("Error reading from database: {}", err));
+                                    },
+                                };
+                            }
+                            else {
+                                info_log!("{table_name} 表为空");
+                                // test_write_to_database(&baseinof);
+                            }
+                            Ok(BomManageCtrl {
+                                database: baseinof,
+                                element_map: map,
+                            })
+                        },
+                        Err(error) => {
+                            info_log!("{error}");
+                            Err("文件创建失败".to_string())
+                        }
+                    }
+                },
+                Err(error) => { // 文件不存在或无效, 创建文件
+                    info_log!("{error}");
+                    match open_or_create_data_file(data_filepath) {
+                        Ok(content) => {
+                            let baseinof = DataBaseInfo {
+                                conn: content,
+                                filepath: data_filepath.to_string(),
+                                tables: table_name.to_string(),
+                            };
+                            let map:HashMap<String, Element> = HashMap::new();
+
+                            Ok(BomManageCtrl {
+                                database: baseinof,
+                                element_map: map,
+                            })
+                        },
+                        Err(error) => {
+                            info_log!("{error}");
+                            Err("文件创建失败".to_string())
+                        }
+                    }
+                }
+            }
+        }
+
+        /**
+         * @name: add_element
+         * @msg: 添加元件到哈希表中, 如果已经存在则修改数量
+         * @param {*} map 哈希表
+         * @param {*} element 要写入到表中元件
+         * @return {*}
+         * @author: TOTHTOT
+         * @Date: 2024-08-01 14:40:26
+         */    
+        pub fn add_element(self: &mut Self, mut element: Element) -> Result<(), String> {
+            // 根据键获取数据
+            match self.element_map.get_mut(element.model.as_str()) {
+                Some(e) => {
+                    // 已经存在了的元件就修改数量
+                    element.modify_number(e.number + element.number);
+                }
+                None => {
+                }
+            }
+            self.element_map.insert(element.model.clone(), element);
+            self.database.write_hm_to_database(&self.element_map).map_err(|_| {
+                "写入数据库失败".to_string()
+            })?;
+            Ok(())
+        }
+
+        /**
+         * @name: 
+         * @msg: 
+         * @param {*} map
+         * @param {*} Element
+         * @param {String} model
+         * @return {*}
+         * @author: TOTHTOT
+         * @Date: 2024-08-01 14:41:42
+         */    
+        pub fn del_element(&mut self, model: String) -> Result<(), String> {
+            // 从哈希表中删除元素
+            self.element_map.remove(&model);
+        
+            // 尝试将更新后的哈希表写入数据库
+            self.database.write_hm_to_database(&self.element_map).map_err(|_| {
+                "写入数据库失败".to_string()
+            })?;
+        
+            // 如果没有错误，返回 Ok(())
+            Ok(())
+        }
+        
     }
     
     /**
@@ -345,6 +495,7 @@ pub mod bom_manage {
         
         count
     }
+    
     /**
      * @name: test_write_to_database
      * @msg: 测试函数, 写入测试数据到数据库中
@@ -355,7 +506,7 @@ pub mod bom_manage {
      * @Date: 2024-07-31 09:42:17
      */
     #[allow(dead_code)]
-    fn test_write_to_database(database: &DataBaseInfo) {
+    fn test_write_to_database(database: &DataBaseInfo) -> Result<(), Box<dyn Error>> {
         let mut map:HashMap<String, Element> = HashMap::new();
         let element = Element {
             describe: "Component A".to_string(),
@@ -376,7 +527,9 @@ pub mod bom_manage {
         map.insert("component_b".to_string(), element_2);
 
         // 将哈希表写入数据库
-        database.write_hm_to_database(&map);
+        database.write_hm_to_database(&map)?;
+
+        Ok(())
     }
 
     /**
@@ -408,77 +561,6 @@ pub mod bom_manage {
         return Ok(map);
     }
 
-    /**
-     * @name: new
-     * @msg: 创建时判断是否有数据文件, 
-     * 1. 有的话就读取并创建哈希表, 将数据写入, 
-     * 2. 没数据文件就创建哈希表等待写入数据到表中.
-     * @param {&'a str} data_filepath 数据库地址
-     * @param {&'a str} table_name 数据库表名
-     * @return {*}
-     * @author: TOTHTOT
-     * @Date: 2024-07-29 11:11:17
-     */
-    pub fn new<'a>(data_filepath: &'a str, table_name: &'a str) -> Result<(DataBaseInfo, HashMap<String, Element>), String> { 
-        // 判断文件是否存在且数据有效
-        match check_datafile(data_filepath) {
-            Ok(_) => { // 文件存在且有效, 读取文件内容
-                match open_or_create_data_file(data_filepath) {
-                    Ok(content) => {
-                        let mut map:HashMap<String, Element> = HashMap::new();
-                        // 行数, 根据行数判断是否需要读取数据到哈希表中, 先借用 content 避免所有权问题
-                        let count = database_get_line(&content, table_name);
-                        let baseinof = DataBaseInfo {
-                            conn: content,
-                            filepath: data_filepath.to_string(),
-                            tables: table_name.to_string(),
-                        };
-
-                        if count > 0 {
-                            // 读取数据到哈希表
-                            map = match baseinof.read_hm_from_database() {
-                                Ok(map) => {
-                                    map
-                                },
-                                Err(err) => {
-                                    info_log!("{err}");
-                                    return Err(format!("Error reading from database: {}", err));
-                                },
-                            };
-                        }
-                        else {
-                            info_log!("{table_name} 表为空");
-                            // test_write_to_database(&baseinof);
-                        }
-                        Ok((baseinof, map))
-                    },
-                    Err(error) => {
-                        info_log!("{error}");
-                        Err("文件创建失败".to_string())
-                    }
-                }
-            },
-            Err(error) => { // 文件不存在或无效, 创建文件
-                info_log!("{error}");
-                match open_or_create_data_file(data_filepath) {
-                    Ok(content) => {
-                        let baseinof = DataBaseInfo {
-                            conn: content,
-                            filepath: data_filepath.to_string(),
-                            tables: table_name.to_string(),
-                        };
-                        Ok((baseinof, HashMap::new()))
-                    },
-                    Err(error) => {
-                        info_log!("{error}");
-                        Err("文件创建失败".to_string())
-                    }
-                }
-            }
-        }
-    }
-
-    // pub fn p
     // Element 结构体的方法
     impl Element {
          /**
@@ -501,9 +583,6 @@ pub mod bom_manage {
          * @Date: 2024-07-29 10:23:12
          */        
         pub fn modify_number(&mut self, number: u32) -> &mut Self { self.number = number; self}
-
-        // 添加一个元件到哈希表
-        // pub fn add_element(&mut self, element_map: &mut HashMap<String, Element>) { element_map.insert(self.model.clone(), self.clone()); }
     }
 
 }
@@ -512,25 +591,23 @@ pub mod bom_manage {
 mod tests {
     use bom_manage::*;
     use super::*;
-    use std::collections::HashMap;
-
+    use std::error::Error;
+    
     #[test]
-    fn it_works() {
+    fn it_works() -> Result<(), Box<dyn Error>> {
         // 数据文件地址
         const DATA_FILE: &str = "data_resource.db";
         // 表名
         const TABLE_NAME: &str = "bom_data";
-        let mut element_map: HashMap<String, Element>;
-        let databaseinfo: DataBaseInfo;
-        match bom_manage::new(DATA_FILE, TABLE_NAME) {
-            Ok((my_databaseinfo, my_element_map)) => {
-                databaseinfo = my_databaseinfo;
-                element_map = my_element_map;
-            },
+        // 创建数据库实例
+        let mut bom_manage_ctrl = match BomManageCtrl::new(DATA_FILE, TABLE_NAME) {
+            Ok(bom_manage_ctrl) => bom_manage_ctrl,
             Err(error) => panic!("Error: {error}"),
         };
-        // 遍历初始化是的哈希表
-        for (key, value) in element_map.iter() {
+
+        // 遍历初始化时的哈希表
+        println!("初始化哈希表：");
+        for (key, value) in bom_manage_ctrl.element_map.iter() {
             println!("Key: {key}, Value: {:#?}", value);
         }
         
@@ -556,14 +633,23 @@ mod tests {
             element_type : ElementType::Capacitor,
             state : ElementStatus::ALOT,
         };
-        element_map.insert(res.model.clone(), res);
-        element_map.insert(cap.model.clone(), cap);
-        element_map.insert(cap2.model.clone(), cap2);
-        databaseinfo.write_hm_to_database(&element_map);
+
+        bom_manage_ctrl.add_element(res)?;
+        bom_manage_ctrl.add_element(cap)?;
+        bom_manage_ctrl.add_element(cap2)?;
+
         println!("测试增加元件成功");
-        // 遍历初始化是的哈希表
-        for (key, value) in element_map.iter() {
+        // 遍历初始化时的哈希表
+        for (key, value) in bom_manage_ctrl.element_map.iter() {
             println!("Key: {key}, Value: {:#?}", value);
         }
+        
+        bom_manage_ctrl.del_element("C10uF".to_string())?;
+        println!("测试删除元件成功");
+        for (key, value) in bom_manage_ctrl.element_map.iter() {
+            println!("Key: {key}, Value: {:#?}", value);
+        }
+
+        Ok(())
     }
 }
