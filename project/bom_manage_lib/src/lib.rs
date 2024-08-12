@@ -2,7 +2,7 @@
  * @Description: 电子元件管理程序库
  * @Author: TOTHTOT
  * @Date: 2024-07-05 13:41:11
- * @LastEditTime: 2024-08-12 16:39:53
+ * @LastEditTime: 2024-08-12 17:01:49
  * @LastEditors: TOTHTOT 37585883+TOTHTOT@users.noreply.github.com
  * @FilePath: \rust\project\bom_manage_lib\src\lib.rs
  */
@@ -65,7 +65,7 @@ pub mod bom_manage {
     }
 
     // 元件类别
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub enum ElementType {
         Resistor,   // 电阻
         Diode,      // 二极管
@@ -115,7 +115,7 @@ pub mod bom_manage {
         }
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub enum ElementStatus {
         ALOT,     // 丰富
         NORMAL,   // 一般
@@ -172,7 +172,7 @@ pub mod bom_manage {
     }
 
     // 元件信息
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct Element {
         pub describe: String,          // 元件描述
         pub model: String,             // 元件型号
@@ -406,7 +406,31 @@ pub mod bom_manage {
                 .map_err(|_| "写入数据库失败".to_string())?;
             Ok(())
         }
-
+        
+        /**
+         * @description: 减少元件数量
+         * @param {String} model 减少的元件名称
+         * @param {u32} number 减少的数量
+         * @return {*}
+         */        
+        pub fn reduce_element(&mut self, model: String, number: u32) -> Result<(), String> {
+            // 根据键获取数据
+            match self.element_map.get_mut(model.as_str()) {
+                Some(e) => {
+                    // 已经存在了的元件就修改数量
+                    e.modify_number(e.number - number);
+                    let element = e.clone();
+                    self.element_map.insert(element.model.clone(), element);
+                    self.database
+                        .write_hm_to_database(&self.element_map)
+                        .map_err(|_| "写入数据库失败".to_string())?;
+                }
+                None => {
+                    return Err("元件不存在".to_string());
+                }
+            }
+            Ok(())
+        }
         /**
          * @name:
          * @msg:
