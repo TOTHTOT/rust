@@ -2,16 +2,16 @@
  * @Description: 电子元件管理程序库
  * @Author: TOTHTOT
  * @Date: 2024-07-05 13:41:11
- * @LastEditTime: 2024-08-01 16:18:37
- * @LastEditors: TOTHTOT
+ * @LastEditTime: 2024-08-12 16:39:53
+ * @LastEditors: TOTHTOT 37585883+TOTHTOT@users.noreply.github.com
  * @FilePath: \rust\project\bom_manage_lib\src\lib.rs
  */
 pub mod bom_manage {
-    use std::collections::HashMap;
     use rusqlite::{Connection, Result};
+    use std::collections::HashMap;
     // use serde_json;
-    use std::{fs, line, file, io::*};
     use std::error::Error;
+    use std::{file, fs, io::*, line};
 
     /**
      * @name: info_log
@@ -67,24 +67,24 @@ pub mod bom_manage {
     // 元件类别
     #[derive(Debug)]
     pub enum ElementType {
-        Resistor, // 电阻
-        Diode, // 二极管
+        Resistor,   // 电阻
+        Diode,      // 二极管
         Transistor, // 三极管
-        Capacitor, // 电容
-        Inductor, // 电感
-        Unknown, // 未知
+        Capacitor,  // 电容
+        Inductor,   // 电感
+        Unknown,    // 未知
     }
     // ElementType 的方法
     impl ElementType {
-       /**
-        * @name: to_string
-        * @msg: 类型转为字符串
-        * @param {*} self
-        * @return {*}
-        * @author: TOTHTOT
-        * @Date: 2024-07-31 09:14:58
-        */        
-       pub fn to_string(&self) -> String {
+        /**
+         * @name: to_string
+         * @msg: 类型转为字符串
+         * @param {*} self
+         * @return {*}
+         * @author: TOTHTOT
+         * @Date: 2024-07-31 09:14:58
+         */
+        pub fn to_string(&self) -> String {
             match self {
                 ElementType::Resistor => "电阻".to_string(),
                 ElementType::Diode => "二极管".to_string(),
@@ -93,17 +93,17 @@ pub mod bom_manage {
                 ElementType::Inductor => "电感".to_string(),
                 ElementType::Unknown => "未知".to_string(),
             }
-       }
+        }
 
-       /**
-        * @name: from_string
-        * @msg: 字符串转为ElementType类型
-        * @param { &str } s 字符串
-        * @return {返回ElementType类型, 不支持的类型返回ErrType}
-        * @author: TOTHTOT
-        * @Date: 2024-07-31 09:15:41
-        */
-       pub fn from_string(s: &str) -> Result<ElementType, String> {
+        /**
+         * @name: from_string
+         * @msg: 字符串转为ElementType类型
+         * @param { &str } s 字符串
+         * @return {返回ElementType类型, 不支持的类型返回ErrType}
+         * @author: TOTHTOT
+         * @Date: 2024-07-31 09:15:41
+         */
+        pub fn from_string(s: &str) -> Result<ElementType, String> {
             match s {
                 "电阻" => Ok(ElementType::Resistor),
                 "二极管" => Ok(ElementType::Diode),
@@ -112,15 +112,15 @@ pub mod bom_manage {
                 "电感" => Ok(ElementType::Inductor),
                 _ => Err("Error ElementType".to_string()),
             }
-       }
+        }
     }
 
     #[derive(Debug)]
     pub enum ElementStatus {
-        ALOT, // 丰富
-        NORMAL, // 一般
+        ALOT,     // 丰富
+        NORMAL,   // 一般
         SHORTAGE, // 缺货
-        Unknown, // 未知
+        Unknown,  // 未知
     }
     // ElementStatus 的方法
     impl ElementStatus {
@@ -131,7 +131,7 @@ pub mod bom_manage {
          * @return {转译后的字符串, 类型错误返回空字符串}
          * @author: TOTHTOT
          * @Date: 2024-07-31 09:22:04
-         */        
+         */
         pub fn to_string(&self) -> String {
             match self {
                 ElementStatus::ALOT => "丰富".to_string(),
@@ -148,7 +148,7 @@ pub mod bom_manage {
          * @return {Ok(ElementStatus) 匹配的类型; Err(&str) 失败的字符串}
          * @author: TOTHTOT
          * @Date: 2024-07-31 09:25:47
-         */        
+         */
         pub fn from_string(s: &str) -> Result<ElementStatus, String> {
             match s {
                 "丰富" => Ok(ElementStatus::ALOT),
@@ -157,16 +157,28 @@ pub mod bom_manage {
                 _ => Err("ErrorNumber".to_string()),
             }
         }
+
+        pub fn from_number(num: u32) -> Result<ElementStatus, String> {
+            if num > 100 {
+                Ok(ElementStatus::ALOT)
+            } else if num > 50 && num <= 100 {
+                Ok(ElementStatus::NORMAL)
+            } else if num > 0 && num <= 50 {
+                Ok(ElementStatus::SHORTAGE)
+            } else {
+                Ok(ElementStatus::Unknown)
+            }
+        }
     }
 
     // 元件信息
     #[derive(Debug)]
     pub struct Element {
-        pub describe: String, // 元件描述
-        pub model: String, // 元件型号
-        pub number: u32, // 元件数量
+        pub describe: String,          // 元件描述
+        pub model: String,             // 元件型号
+        pub number: u32,               // 元件数量
         pub element_type: ElementType, // 元件类型
-        pub state: ElementStatus, // 元件状态
+        pub state: ElementStatus,      // 元件状态
     }
 
     // 保存bom信息的数据库信息
@@ -187,22 +199,32 @@ pub mod bom_manage {
          * @return {*}
          * @author: TOTHTOT
          * @Date: 2024-07-31 09:48:28
-         */    
-        pub fn write_hm_to_database(self: &Self, map: &HashMap<String, Element>) -> Result<(), Box<dyn Error>> {
-            
-            if let Err(e) = self.conn.execute(format!(delete_all_template!(), self.tables).as_str(), []) {
+         */
+        pub fn write_hm_to_database(
+            self: &Self,
+            map: &HashMap<String, Element>,
+        ) -> Result<(), Box<dyn Error>> {
+            if let Err(e) = self
+                .conn
+                .execute(format!(delete_all_template!(), self.tables).as_str(), [])
+            {
                 info_log!("Failed to delete data: {}", e);
                 return Err("Failed to delete data".into());
-             };
+            };
             // 将哈希表写入数据库
             for (_key, value) in map.iter() {
-                self.conn.execute(format!(insert_into_template!(), self.tables).as_str(), 
-                                    &[
-                                        &value.describe, 
-                                        &value.model, 
-                                        &value.number.to_string(), 
-                                        &value.element_type.to_string(), 
-                                        &value.state.to_string()],).expect("Failed to insert data");
+                self.conn
+                    .execute(
+                        format!(insert_into_template!(), self.tables).as_str(),
+                        &[
+                            &value.describe,
+                            &value.model,
+                            &value.number.to_string(),
+                            &value.element_type.to_string(),
+                            &value.state.to_string(),
+                        ],
+                    )
+                    .expect("Failed to insert data");
             }
             Ok(())
         }
@@ -214,10 +236,15 @@ pub mod bom_manage {
          * @return {*}
          * @author: TOTHTOT
          * @Date: 2024-07-31 10:33:07
-         */        
-        pub fn read_hm_from_database(self: &Self) -> Result<HashMap<String, Element>, Box<dyn Error>> {
-             // 准备 SQL 查询语句
-            let mut stmt = self.conn.prepare(format!(get_all_template!(), self.tables).as_str()).expect("Failed to prepare statement");
+         */
+        pub fn read_hm_from_database(
+            self: &Self,
+        ) -> Result<HashMap<String, Element>, Box<dyn Error>> {
+            // 准备 SQL 查询语句
+            let mut stmt = self
+                .conn
+                .prepare(format!(get_all_template!(), self.tables).as_str())
+                .expect("Failed to prepare statement");
             // 执行查询语句，迭代处理每一行结果, data_iter 是个迭代器
             let data_iter = stmt.query_map([], |row| {
                 Ok(Element {
@@ -225,43 +252,45 @@ pub mod bom_manage {
                         Ok(describe) => {
                             // info_log!("describe: {}", describe);
                             describe
-                        },
+                        }
                         Err(_) => "Unknown".to_string(),
                     },
                     model: row.get(1).expect("Failed to get model"),
                     number: row.get(2).expect("Failed to get number"),
                     // 字符串转枚举
                     element_type: match row.get::<usize, String>(3) {
-                        Ok(element_type_str) => ElementType::from_string(&element_type_str).unwrap_or(ElementType::Unknown),
+                        Ok(element_type_str) => ElementType::from_string(&element_type_str)
+                            .unwrap_or(ElementType::Unknown),
                         Err(_) => ElementType::Unknown,
                     },
                     // 字符串转枚举
                     state: match row.get::<usize, String>(4) {
-                        Ok(element_status_str) => ElementStatus::from_string(&element_status_str).unwrap_or(ElementStatus::Unknown),
+                        Ok(element_status_str) => ElementStatus::from_string(&element_status_str)
+                            .unwrap_or(ElementStatus::Unknown),
                         Err(err) => {
                             info_log!("Failed to get element status: {}", err);
                             ElementStatus::Unknown
-                        },
+                        }
                     },
                 })
             })?; // 为什么可以用?, Box<dyn Error> 什么意思
-            
+
             let mut map: HashMap<String, Element> = HashMap::new();
             for result in data_iter {
                 match result {
                     Ok(element) => {
                         map.insert(element.model.clone(), element);
-                    },
+                    }
                     Err(_) => {
                         info_log!("Failed to get element");
-                        continue
-                    },
+                        continue;
+                    }
                 };
             }
             Ok(map)
         }
     }
-    
+
     // bom控制结构体
     pub struct BomManageCtrl {
         pub database: DataBaseInfo,
@@ -272,8 +301,8 @@ pub mod bom_manage {
     impl BomManageCtrl {
         /**
          * @name: new
-         * @msg: 创建时判断是否有数据文件, 
-         * 1. 有的话就读取并创建哈希表, 将数据写入, 
+         * @msg: 创建时判断是否有数据文件,
+         * 1. 有的话就读取并创建哈希表, 将数据写入,
          * 2. 没数据文件就创建哈希表等待写入数据到表中.
          * @param {&'a str} data_filepath 数据库地址
          * @param {&'a str} table_name 数据库表名
@@ -281,13 +310,17 @@ pub mod bom_manage {
          * @author: TOTHTOT
          * @Date: 2024-07-29 11:11:17
          */
-        pub fn new<'a>(data_filepath: &'a str, table_name: &'a str) -> Result<BomManageCtrl, String> { 
+        pub fn new<'a>(
+            data_filepath: &'a str,
+            table_name: &'a str,
+        ) -> Result<BomManageCtrl, String> {
             // 判断文件是否存在且数据有效
             match check_datafile(data_filepath) {
-                Ok(_) => { // 文件存在且有效, 读取文件内容
+                Ok(_) => {
+                    // 文件存在且有效, 读取文件内容
                     match open_or_create_data_file(data_filepath) {
                         Ok(content) => {
-                            let mut map:HashMap<String, Element> = HashMap::new();
+                            let mut map: HashMap<String, Element> = HashMap::new();
                             // 行数, 根据行数判断是否需要读取数据到哈希表中, 先借用 content 避免所有权问题
                             let count = database_get_line(&content, table_name);
                             let baseinof = DataBaseInfo {
@@ -299,16 +332,16 @@ pub mod bom_manage {
                             if count > 0 {
                                 // 读取数据到哈希表
                                 map = match baseinof.read_hm_from_database() {
-                                    Ok(map) => {
-                                        map
-                                    },
+                                    Ok(map) => map,
                                     Err(err) => {
                                         info_log!("{err}");
-                                        return Err(format!("Error reading from database: {}", err));
-                                    },
+                                        return Err(format!(
+                                            "Error reading from database: {}",
+                                            err
+                                        ));
+                                    }
                                 };
-                            }
-                            else {
+                            } else {
                                 info_log!("{table_name} 表为空");
                                 // test_write_to_database(&baseinof);
                             }
@@ -316,14 +349,15 @@ pub mod bom_manage {
                                 database: baseinof,
                                 element_map: map,
                             })
-                        },
+                        }
                         Err(error) => {
                             info_log!("{error}");
                             Err("文件创建失败".to_string())
                         }
                     }
-                },
-                Err(error) => { // 文件不存在或无效, 创建文件
+                }
+                Err(error) => {
+                    // 文件不存在或无效, 创建文件
                     info_log!("{error}");
                     match open_or_create_data_file(data_filepath) {
                         Ok(content) => {
@@ -332,13 +366,13 @@ pub mod bom_manage {
                                 filepath: data_filepath.to_string(),
                                 tables: table_name.to_string(),
                             };
-                            let map:HashMap<String, Element> = HashMap::new();
+                            let map: HashMap<String, Element> = HashMap::new();
 
                             Ok(BomManageCtrl {
                                 database: baseinof,
                                 element_map: map,
                             })
-                        },
+                        }
                         Err(error) => {
                             info_log!("{error}");
                             Err("文件创建失败".to_string())
@@ -356,7 +390,7 @@ pub mod bom_manage {
          * @return {*}
          * @author: TOTHTOT
          * @Date: 2024-08-01 14:40:26
-         */    
+         */
         pub fn add_element(self: &mut Self, mut element: Element) -> Result<(), String> {
             // 根据键获取数据
             match self.element_map.get_mut(element.model.as_str()) {
@@ -364,41 +398,39 @@ pub mod bom_manage {
                     // 已经存在了的元件就修改数量
                     element.modify_number(e.number + element.number);
                 }
-                None => {
-                }
+                None => {}
             }
             self.element_map.insert(element.model.clone(), element);
-            self.database.write_hm_to_database(&self.element_map).map_err(|_| {
-                "写入数据库失败".to_string()
-            })?;
+            self.database
+                .write_hm_to_database(&self.element_map)
+                .map_err(|_| "写入数据库失败".to_string())?;
             Ok(())
         }
 
         /**
-         * @name: 
-         * @msg: 
+         * @name:
+         * @msg:
          * @param {*} map
          * @param {*} Element
          * @param {String} model
          * @return {*}
          * @author: TOTHTOT
          * @Date: 2024-08-01 14:41:42
-         */    
+         */
         pub fn del_element(&mut self, model: String) -> Result<(), String> {
             // 从哈希表中删除元素
             self.element_map.remove(&model);
-        
+
             // 尝试将更新后的哈希表写入数据库
-            self.database.write_hm_to_database(&self.element_map).map_err(|_| {
-                "写入数据库失败".to_string()
-            })?;
-        
+            self.database
+                .write_hm_to_database(&self.element_map)
+                .map_err(|_| "写入数据库失败".to_string())?;
+
             // 如果没有错误，返回 Ok(())
             Ok(())
         }
-        
     }
-    
+
     /**
      * @name: open_or_create_data_file
      * @msg: 打开或者创建sqlite文件
@@ -406,27 +438,20 @@ pub mod bom_manage {
      * @return {成功返回 Connection 对象, 需要解包; 失败返回错误信息}
      * @author: TOTHTOT
      * @Date: 2024-07-30 14:33:14
-     */        
-    fn open_or_create_data_file(filepath:&str) -> Result<Connection, String> {
+     */
+    fn open_or_create_data_file(filepath: &str) -> Result<Connection, String> {
         match Connection::open(filepath) {
             Ok(file) => {
                 // 写入表头
                 match file.execute(create_table_template!(), []) {
-                    Ok(_) => {
-                        Ok(file)
-                    },
-                    Err(_) => {
-                        Err("链接数据库失败".to_string())
-                    }
-                
+                    Ok(_) => Ok(file),
+                    Err(_) => Err("链接数据库失败".to_string()),
                 }
-            },
-            Err(_) => {
-                Err("无法打开/创建文件".to_string())
             }
+            Err(_) => Err("无法打开/创建文件".to_string()),
         }
     }
-    
+
     /**
      * @name: check_datafile
      * @msg: 检测文件是否为合法sql文件, 合法就返回Ok(_), 否则返回错误信息
@@ -434,7 +459,7 @@ pub mod bom_manage {
      * @return {*}
      * @author: TOTHTOT
      * @Date: 2024-07-29 13:57:45
-     */        
+     */
     fn check_datafile(filepath: &str) -> Result<(), String> {
         if fs::metadata(filepath).is_ok() {
             info_log!("{filepath} 文件存在");
@@ -455,20 +480,18 @@ pub mod bom_manage {
 
             // SQLite 文件头的 magic number
             let sqlite_magic_number: [u8; 16] = [
-                0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66,
-                0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20, 0x33, 0x00,
+                0x53, 0x51, 0x4c, 0x69, 0x74, 0x65, 0x20, 0x66, 0x6f, 0x72, 0x6d, 0x61, 0x74, 0x20,
+                0x33, 0x00,
             ];
 
             if buffer == sqlite_magic_number {
                 info_log!("{filepath} 是数据库文件");
                 return Ok(());
-            }
-            else {
+            } else {
                 info_log!("{filepath} 不是数据库文件");
                 return Err("不是数据库文件".to_string());
             }
-        }
-        else {
+        } else {
             info_log!("{filepath} 文件不存在");
             return Err("文件不存在".to_string());
         }
@@ -484,18 +507,21 @@ pub mod bom_manage {
      * @Date: 2024-07-30 16:51:00
      */
     fn database_get_line(conn: &Connection, tables: &str) -> u64 {
-        let mut stmt = conn.prepare(format!(get_row_num_template!(), tables).as_str()).unwrap_or_else(|err| {
-            info_log!("{err}");
-            conn.prepare(get_row_num_template_fail!()).expect("Failed to prepare fallback statement")
-        });
+        let mut stmt = conn
+            .prepare(format!(get_row_num_template!(), tables).as_str())
+            .unwrap_or_else(|err| {
+                info_log!("{err}");
+                conn.prepare(get_row_num_template_fail!())
+                    .expect("Failed to prepare fallback statement")
+            });
         let count: u64 = stmt.query_row([], |row| row.get(0)).unwrap_or_else(|err| {
             info_log!("{err}");
             0
         });
-        
+
         count
     }
-    
+
     /**
      * @name: test_write_to_database
      * @msg: 测试函数, 写入测试数据到数据库中
@@ -507,7 +533,7 @@ pub mod bom_manage {
      */
     #[allow(dead_code)]
     fn test_write_to_database(database: &DataBaseInfo) -> Result<(), Box<dyn Error>> {
-        let mut map:HashMap<String, Element> = HashMap::new();
+        let mut map: HashMap<String, Element> = HashMap::new();
         let element = Element {
             describe: "Component A".to_string(),
             model: "R10K".to_string(),
@@ -541,29 +567,28 @@ pub mod bom_manage {
      * @Date: 2024-07-31 14:31:01
      */
     #[allow(dead_code)]
-    fn test_read_from_database(database: &DataBaseInfo) -> Result<HashMap<String, Element>, String> {
+    fn test_read_from_database(
+        database: &DataBaseInfo,
+    ) -> Result<HashMap<String, Element>, String> {
         // 从数据库中读取数据
         let map: HashMap<String, Element> = match database.read_hm_from_database() {
-            Ok(map) => {
-                map
-            },
+            Ok(map) => map,
             Err(err) => {
                 info_log!("{err}");
                 return Err(format!("Error reading from database: {}", err));
-            },
+            }
         };
 
         // 打印读取的数据
         for (key, value) in &map {
             info_log!("Key: {}, Value: {:#?}", key, value);
-        
         }
         return Ok(map);
     }
 
     // Element 结构体的方法
     impl Element {
-         /**
+        /**
          * @name: modify_describe
          * @msg: 修改描述
          * @param {*} mut self
@@ -571,8 +596,11 @@ pub mod bom_manage {
          * @return {void}
          * @author: TOTHTOT
          * @Date: 2024-07-29 10:22:18
-         */        
-        pub fn modify_describe(&mut self, describe: String) -> &mut Self { self.describe = describe; self}
+         */
+        pub fn modify_describe(&mut self, describe: String) -> &mut Self {
+            self.describe = describe;
+            self
+        }
         /**
          * @name: modify_number
          * @msg: 修改元件数量
@@ -581,18 +609,20 @@ pub mod bom_manage {
          * @return {self}
          * @author: TOTHTOT
          * @Date: 2024-07-29 10:23:12
-         */        
-        pub fn modify_number(&mut self, number: u32) -> &mut Self { self.number = number; self}
+         */
+        pub fn modify_number(&mut self, number: u32) -> &mut Self {
+            self.number = number;
+            self
+        }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
-    use bom_manage::*;
     use super::*;
+    use bom_manage::*;
     use std::error::Error;
-    
+
     #[test]
     fn it_works() -> Result<(), Box<dyn Error>> {
         // 数据文件地址
@@ -610,28 +640,28 @@ mod tests {
         for (key, value) in bom_manage_ctrl.element_map.iter() {
             println!("Key: {key}, Value: {:#?}", value);
         }
-        
+
         // 测试增加元件
-        let res = Element{
-            describe :"电阻".to_string(),
-            model :"R20K".to_string(),
-            number : 100,
-            element_type : ElementType::Resistor,
-            state : ElementStatus::ALOT,
+        let res = Element {
+            describe: "电阻".to_string(),
+            model: "R20K".to_string(),
+            number: 100,
+            element_type: ElementType::Resistor,
+            state: ElementStatus::ALOT,
         };
-        let cap = Element{
-            describe :"电容".to_string(),
-            model :"C10uF".to_string(),
-            number : 100,
-            element_type : ElementType::Capacitor,
-            state : ElementStatus::ALOT,
+        let cap = Element {
+            describe: "电容".to_string(),
+            model: "C10uF".to_string(),
+            number: 100,
+            element_type: ElementType::Capacitor,
+            state: ElementStatus::ALOT,
         };
-        let cap2 = Element{
-            describe :"电容".to_string(),
-            model :"C10uF".to_string(),
-            number : 120,
-            element_type : ElementType::Capacitor,
-            state : ElementStatus::ALOT,
+        let cap2 = Element {
+            describe: "电容".to_string(),
+            model: "C10uF".to_string(),
+            number: 120,
+            element_type: ElementType::Capacitor,
+            state: ElementStatus::ALOT,
         };
 
         bom_manage_ctrl.add_element(res)?;
@@ -643,7 +673,7 @@ mod tests {
         for (key, value) in bom_manage_ctrl.element_map.iter() {
             println!("Key: {key}, Value: {:#?}", value);
         }
-        
+
         bom_manage_ctrl.del_element("C10uF".to_string())?;
         println!("测试删除元件成功");
         for (key, value) in bom_manage_ctrl.element_map.iter() {

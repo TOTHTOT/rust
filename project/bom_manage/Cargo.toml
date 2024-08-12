@@ -5,5 +5,5 @@ edition = "2021"
 
 [dependencies]
 bom_manage_lib = { path = "../bom_manage_lib" }
-clap = "4.0"  # 检查最新版本号
+clap = { version = "4.4.13", features = ["derive"] }
 text_io = "0.1"  # 检查最新版本号
