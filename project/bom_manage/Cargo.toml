@@ -7,3 +7,4 @@ edition = "2021"
 bom_manage_lib = { path = "../bom_manage_lib" }
 clap = { version = "4.4.13", features = ["derive"] }
 text_io = "0.1"  # 检查最新版本号
+rustyline = "14.0.0"

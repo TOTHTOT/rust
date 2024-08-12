@@ -2,15 +2,16 @@
  * @Author: TOTHTOT 37585883+TOTHTOT@users.noreply.github.com
  * @Date: 2024-07-05 13:40:25
  * @LastEditors: TOTHTOT 37585883+TOTHTOT@users.noreply.github.com
- * @LastEditTime: 2024-08-12 17:10:15
+ * @LastEditTime: 2024-08-12 17:53:23
  * @FilePath: \bom_manage\src\main.rs
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 use bom_manage_lib::bom_manage::*;
 use clap::{Arg, ArgMatches, Command};
-use std::io::{self, Write};
+use std::io::{self};
 use std::error::Error;
-
+use rustyline::{Editor, Config, history::DefaultHistory, error::ReadlineError};
+use std::process;
 
 // 数据库文件地址
 macro_rules! DATA_FILE {
@@ -55,14 +56,9 @@ macro_rules! COMMAND_MODIFY {
  * @param {*} progam_name
  * @return {Result<Vec<String>, io::Error>}
  */
-fn get_cmd(progam_name: &str) -> Result<Vec<String>, io::Error> {
-    io::stdout().flush().expect("Failed to flush stdout");
-
-    let mut input = String::new();
-    io::stdin()
-        .read_line(&mut input)
-        .expect("Failed to read line");
-    let input = input.trim(); // 去除输入两端的空白字符
+fn get_cmd(progam_name: &str, cmd_data: String) -> Result<Vec<String>, io::Error> {
+    
+    let input = cmd_data.trim(); // 去除输入两端的空白字符
 
     if input.len() == 0 {
         // 如果输入为空, 返回错误
@@ -276,7 +272,10 @@ fn command_handle(args: Vec<String>, bom_manage_ctrl: &mut BomManageCtrl) {
                 Ok(_) => println!("Remove electronic component successfully!"),
                 Err(err) => println!("Error: {err}"),
             },
-
+            Some(("exit", _sub_matches)) => {
+                println!("Exiting...");
+                process::exit(0);
+            }
             _ => println!("Invalid command"),
         },
         Err(err) => {
@@ -291,14 +290,37 @@ fn main() {
         Ok(bom_manage_ctrl) => bom_manage_ctrl,
         Err(error) => panic!("Error: {error}"),
     };
-
+    let config = Config::builder().build();
+    let mut rl = Editor::<(), DefaultHistory>::with_config(config).unwrap();
+    if rl.load_history("history.txt").is_err() {
+        println!("No previous history.");
+    }
+    
     loop {
-        print!("{progam_name}> ");
+        let readline = match rl.readline(format!("{progam_name}>> ").as_str()) {
+            Ok(line) => {
+                rl.add_history_entry(line.as_str());
+                line
+            },
+            Err(ReadlineError::Interrupted) => {
+                println!("CTRL-C");
+                break;
+            }
+            Err(ReadlineError::Eof) => {
+                println!("CTRL-D");
+                break;
+            }
+            Err(err) => {
+                println!("Error: {:?}", err);
+                break;
+            }
+        };
 
         // 解析数据
-        match get_cmd(progam_name) {
+        match get_cmd(&progam_name, readline) {
             Ok(args) => {
                 command_handle(args, &mut bom_manage_ctrl);
+                rl.save_history("history.txt").unwrap();
             }
             Err(err) => match err.kind() {
                 io::ErrorKind::Other => {
@@ -312,6 +334,7 @@ fn main() {
             },
         }
     }
+    rl.save_history("history.txt").unwrap();
 }
 
 fn handle_greet(matches: &ArgMatches) {
