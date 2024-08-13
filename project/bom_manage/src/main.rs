@@ -2,15 +2,15 @@
  * @Author: TOTHTOT 37585883+TOTHTOT@users.noreply.github.com
  * @Date: 2024-07-05 13:40:25
  * @LastEditors: TOTHTOT 37585883+TOTHTOT@users.noreply.github.com
- * @LastEditTime: 2024-08-12 17:53:23
+ * @LastEditTime: 2024-08-13 10:15:22
  * @FilePath: \bom_manage\src\main.rs
  * @Description: 这是默认设置,请设置`customMade`, 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  */
 use bom_manage_lib::bom_manage::*;
 use clap::{Arg, ArgMatches, Command};
-use std::io::{self};
+use rustyline::{error::ReadlineError, history::DefaultHistory, Config, Editor};
 use std::error::Error;
-use rustyline::{Editor, Config, history::DefaultHistory, error::ReadlineError};
+use std::io::{self};
 use std::process;
 
 // 数据库文件地址
@@ -39,6 +39,12 @@ macro_rules! COMMAND_REMOVE {
     };
 }
 
+macro_rules! SUBCOMMAND_ALL {
+    () => {
+        "all"
+    };
+}
+
 macro_rules! COMMAND_VIEW {
     () => {
         "view"
@@ -57,7 +63,6 @@ macro_rules! COMMAND_MODIFY {
  * @return {Result<Vec<String>, io::Error>}
  */
 fn get_cmd(progam_name: &str, cmd_data: String) -> Result<Vec<String>, io::Error> {
-    
     let input = cmd_data.trim(); // 去除输入两端的空白字符
 
     if input.len() == 0 {
@@ -80,7 +85,10 @@ fn get_cmd(progam_name: &str, cmd_data: String) -> Result<Vec<String>, io::Error
  * @param {*} matches
  * @return {*}
  */
-fn add_electronic_component(matches: &ArgMatches, bom_manage_ctrl: &mut BomManageCtrl) -> Result<(), Box<dyn Error>> {
+fn add_electronic_component(
+    matches: &ArgMatches,
+    bom_manage_ctrl: &mut BomManageCtrl,
+) -> Result<(), Box<dyn Error>> {
     let invalid_name = "null".to_string();
     let name = matches.get_one::<String>("name").unwrap_or(&invalid_name);
 
@@ -109,23 +117,23 @@ fn add_electronic_component(matches: &ArgMatches, bom_manage_ctrl: &mut BomManag
         .read_line(&mut input)
         .expect("Failed to read line");
     let describe = input.trim(); // 去除输入两端的空白字符
-    // 输入类型
+                                 // 输入类型
     println!("Enter the type of the electronic component: ");
     let mut input = String::new();
     io::stdin()
         .read_line(&mut input)
         .expect("Failed to read line");
     let element_type = input.trim(); // 去除输入两端的空白字符
-    
-    let res = Element{
-        describe :describe.to_string(),
-        model :name.clone(),
-        number : number,
-        element_type : ElementType::from_string(element_type)?,
-        state : ElementStatus::from_number(number)?,
+
+    let res = Element {
+        describe: describe.to_string(),
+        model: name.clone(),
+        number: number,
+        element_type: ElementType::from_string(element_type)?,
+        state: ElementStatus::from_number(number)?,
     };
     bom_manage_ctrl.add_element(res)?;
-    // 
+    //
     println!("Adding electronic component: {}", name);
     Ok(())
 }
@@ -136,7 +144,10 @@ fn add_electronic_component(matches: &ArgMatches, bom_manage_ctrl: &mut BomManag
  * @param {*} bom_manage_ctrl
  * @return {*}
  */
-fn view_electronic_component(matches: &ArgMatches, bom_manage_ctrl: &mut BomManageCtrl) -> Result<(), Box<dyn Error>> {
+fn view_electronic_component(
+    matches: &ArgMatches,
+    bom_manage_ctrl: &mut BomManageCtrl,
+) -> Result<(), Box<dyn Error>> {
     let invalid_name = "null".to_string();
     let name = matches.get_one::<String>("name").unwrap_or(&invalid_name);
 
@@ -145,17 +156,16 @@ fn view_electronic_component(matches: &ArgMatches, bom_manage_ctrl: &mut BomMana
         println!("Please provide a name for the electronic component.");
         return Err("No name provided".into());
     }
-    if name == "all" {
+    if name == SUBCOMMAND_ALL!() {
         for (key, value) in bom_manage_ctrl.element_map.iter() {
             println!("Key: {key}, Value: {:#?}", value);
         }
-    }
-    else {
+    } else {
         let element = bom_manage_ctrl.element_map.get(name);
         match element {
             Some(element) => {
                 println!("{:#?}", element);
-            },
+            }
             None => {
                 println!("No such electronic component: {}", name);
             }
@@ -164,8 +174,10 @@ fn view_electronic_component(matches: &ArgMatches, bom_manage_ctrl: &mut BomMana
     Ok(())
 }
 
-
-fn remove_electronic_component(matches: &ArgMatches, bom_manage_ctrl: &mut BomManageCtrl) -> Result<(), Box<dyn Error>> {
+fn remove_electronic_component(
+    matches: &ArgMatches,
+    bom_manage_ctrl: &mut BomManageCtrl,
+) -> Result<(), Box<dyn Error>> {
     let invalid_name = "null".to_string();
     let name = matches.get_one::<String>("name").unwrap_or(&invalid_name);
 
@@ -174,22 +186,50 @@ fn remove_electronic_component(matches: &ArgMatches, bom_manage_ctrl: &mut BomMa
         println!("Please provide a name for the electronic component.");
         return Err("No name provided".into());
     }
+    
+    // name 等于 all, 删除库所有数据
+    if name == SUBCOMMAND_ALL!() {
+        let mut input = String::new();
 
-    // 输入数量
-    println!("Enter the reduce quantity of the electronic component: ");
+        println!("Confirm remove all electronic components? (y/N) default N. ");
+        io::stdin()
+        .read_line(&mut input)
+        .expect("Failed to read line");
+        let input = input.trim(); // 去除输入两端的空白字符
+
+        if input == "y" {
+            let _ = bom_manage_ctrl.remove_element(name);
+            println!("Remove all electronic components. ");
+        }
+        return Ok(());
+    }
+    println!("Enter the reduce quantity of the electronic component, input \"all\" remove this electronic component. ");
     let mut input = String::new();
     io::stdin()
         .read_line(&mut input)
         .expect("Failed to read line");
     let input = input.trim(); // 去除输入两端的空白字符
-    let number = match input.parse::<u32>() {
-        Ok(num) => num,
-        Err(_) => {
-            return Err("Please enter a valid number, must be > 0.".into());
+
+    // 移除元件
+    if input == SUBCOMMAND_ALL!() {
+        match bom_manage_ctrl.remove_element(name) {
+            Ok(_) => {}
+            Err(_) => {
+                println!("No such electronic component: {}", name);
+            }
         }
-    };
-    
-    bom_manage_ctrl.reduce_element(name.to_string(), number)?;
+    } else {
+        // 减少一定数量元件 输入数量
+        let number = match input.parse::<u32>() {
+            Ok(num) => num,
+            Err(_) => {
+                return Err("Please enter a valid number, must be > 0.".into());
+            }
+        };
+
+        bom_manage_ctrl.reduce_element(name.to_string(), number)?;
+    }
+
     Ok(())
 }
 /**
@@ -226,27 +266,23 @@ fn command_handle(args: Vec<String>, bom_manage_ctrl: &mut BomManageCtrl) {
         )
         .subcommand(
             Command::new(COMMAND_REMOVE!())
-            .about("Remove a new electronic component")
-            .arg(
-                Arg::new("name")
-                    .help(
-                        "Remove a new electronic component, such as R10K, C20uF, all, etc.",
-                    )
-                    .required(true)
-                    .value_parser(clap::value_parser!(String)),
-            ),
+                .about("Remove a new electronic component")
+                .arg(
+                    Arg::new("name")
+                        .help("Remove a new electronic component, such as R10K, C20uF, all, etc.")
+                        .required(true)
+                        .value_parser(clap::value_parser!(String)),
+                ),
         )
         .subcommand(
             Command::new(COMMAND_VIEW!())
-            .about("View some new electronic component")
-            .arg(
-                Arg::new("name")
-                    .help(
-                        "View some new electronic component, such as R10K, C20uF, all, etc.",
-                    )
-                    .required(true)
-                    .value_parser(clap::value_parser!(String)),
-            ),
+                .about("View some new electronic component")
+                .arg(
+                    Arg::new("name")
+                        .help("View some new electronic component, such as R10K, C20uF, all, etc.")
+                        .required(true)
+                        .value_parser(clap::value_parser!(String)),
+                ),
         )
         .subcommand(Command::new(COMMAND_MODIFY!()).about("Modify a new electronic component"))
         .subcommand(Command::new("exit").about("Exit the program"))
@@ -257,21 +293,27 @@ fn command_handle(args: Vec<String>, bom_manage_ctrl: &mut BomManageCtrl) {
         Ok(matches) => match matches.subcommand() {
             Some(("greet", sub_matches)) => handle_greet(sub_matches),
             Some(("status", _sub_matches)) => handle_status(),
-            Some((COMMAND_ADD!(), sub_matches)) => match add_electronic_component(sub_matches, bom_manage_ctrl) {
-                Ok(_) => println!("Add electronic component successfully!"),
-                Err(err) => println!("Error: {err}"),
-            },
-            Some((COMMAND_VIEW!(), sub_matches)) => match view_electronic_component(sub_matches, bom_manage_ctrl) {
-                Ok(_) => {},
-                Err(err) => println!("Error: {err}"),
-            },
+            Some((COMMAND_ADD!(), sub_matches)) => {
+                match add_electronic_component(sub_matches, bom_manage_ctrl) {
+                    Ok(_) => println!("Add electronic component successfully!"),
+                    Err(err) => println!("Error: {err}"),
+                }
+            }
+            Some((COMMAND_VIEW!(), sub_matches)) => {
+                match view_electronic_component(sub_matches, bom_manage_ctrl) {
+                    Ok(_) => {}
+                    Err(err) => println!("Error: {err}"),
+                }
+            }
             // Some((COMMAND_MODIFY!(), sub_matches)) => match modify_electronic_component(sub_matches, bom_manage_ctrl) {
-                
+
             // },
-            Some((COMMAND_REMOVE!(), sub_matches)) => match remove_electronic_component(sub_matches, bom_manage_ctrl) {
-                Ok(_) => println!("Remove electronic component successfully!"),
-                Err(err) => println!("Error: {err}"),
-            },
+            Some((COMMAND_REMOVE!(), sub_matches)) => {
+                match remove_electronic_component(sub_matches, bom_manage_ctrl) {
+                    Ok(_) => {},
+                    Err(err) => println!("Error: {err}"),
+                }
+            }
             Some(("exit", _sub_matches)) => {
                 println!("Exiting...");
                 process::exit(0);
@@ -295,13 +337,18 @@ fn main() {
     if rl.load_history("history.txt").is_err() {
         println!("No previous history.");
     }
-    
+
     loop {
         let readline = match rl.readline(format!("{progam_name}>> ").as_str()) {
             Ok(line) => {
-                rl.add_history_entry(line.as_str());
+                match rl.add_history_entry(line.as_str()) {
+                    Ok(_) => {}
+                    Err(err) => {
+                        println!("Error: {err}");
+                    }
+                }
                 line
-            },
+            }
             Err(ReadlineError::Interrupted) => {
                 println!("CTRL-C");
                 break;

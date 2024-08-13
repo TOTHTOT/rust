@@ -2,7 +2,7 @@
  * @Description: 电子元件管理程序库
  * @Author: TOTHTOT
  * @Date: 2024-07-05 13:41:11
- * @LastEditTime: 2024-08-12 17:01:49
+ * @LastEditTime: 2024-08-13 10:07:04
  * @LastEditors: TOTHTOT 37585883+TOTHTOT@users.noreply.github.com
  * @FilePath: \rust\project\bom_manage_lib\src\lib.rs
  */
@@ -72,6 +72,7 @@ pub mod bom_manage {
         Transistor, // 三极管
         Capacitor,  // 电容
         Inductor,   // 电感
+        Chip,       // 芯片
         Unknown,    // 未知
     }
     // ElementType 的方法
@@ -91,6 +92,7 @@ pub mod bom_manage {
                 ElementType::Transistor => "三极管".to_string(),
                 ElementType::Capacitor => "电容".to_string(),
                 ElementType::Inductor => "电感".to_string(),
+                ElementType::Chip => "芯片".to_string(),
                 ElementType::Unknown => "未知".to_string(),
             }
         }
@@ -110,6 +112,7 @@ pub mod bom_manage {
                 "三极管" => Ok(ElementType::Transistor),
                 "电容" => Ok(ElementType::Capacitor),
                 "电感" => Ok(ElementType::Inductor),
+                "芯片" => Ok(ElementType::Chip),
                 _ => Err("Error ElementType".to_string()),
             }
         }
@@ -406,13 +409,13 @@ pub mod bom_manage {
                 .map_err(|_| "写入数据库失败".to_string())?;
             Ok(())
         }
-        
+
         /**
          * @description: 减少元件数量
          * @param {String} model 减少的元件名称
          * @param {u32} number 减少的数量
          * @return {*}
-         */        
+         */
         pub fn reduce_element(&mut self, model: String, number: u32) -> Result<(), String> {
             // 根据键获取数据
             match self.element_map.get_mut(model.as_str()) {
@@ -429,6 +432,25 @@ pub mod bom_manage {
                     return Err("元件不存在".to_string());
                 }
             }
+            Ok(())
+        }
+
+        /**
+         * @description: 移除一个元件, 或者所有元件
+         * @param {String} model 元件名称, == all 删除所有元件
+         * @return {*}
+         */
+        pub fn remove_element(&mut self, model: &String) -> Result<(), String> {
+            if model == &"all".to_string() {
+                self.element_map.clear();
+            }
+            else {
+                // 从哈希表中删除元素
+                self.element_map.remove(model);
+            }
+
+            // 尝试将更新后的哈希表写入数据库
+            self.database.write_hm_to_database(&self.element_map).map_err(|err| format!("Fail to write to database: {err}"))?;
             Ok(())
         }
         /**
