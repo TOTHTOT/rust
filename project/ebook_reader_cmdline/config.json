@@ -1,0 +1,19 @@
+{
+  "about_soft": "Ebook Reader v1.0",
+  "cfg_json_path": "./config.json",
+  "menu": {
+    "0": "check book",
+    "1": "add book",
+    "2": "delete book",
+    "3": "read book",
+    "4": "exit"
+  },
+  "books": [
+    {
+      "title": "",
+      "path": "./lq.txt",
+      "author": "",
+      "progress": 0.0
+    }
+  ]
+}
