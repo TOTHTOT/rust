@@ -1,7 +1,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::fs;
-use std::io::{self, Read, Seek, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, Write};
+use std::sync::{Arc, Mutex};
+use std::thread::sleep;
+use std::time::Duration;
+use std::{fs, thread};
 
 /* 宏定义 */
 // 阅读器配置信息报错位置宏
@@ -32,13 +35,30 @@ impl BookInfo {
     }
 }
 
+/* 按键对应事件枚举 */
+#[allow(dead_code)]
+enum EbookReaderHotKeyType {
+    NextLine,
+    PreviousLine,
+    ExitReadMode,
+    Unsupport,
+}
+
+/* 阅读器工作页面 */
+#[derive(Serialize, Deserialize, Debug)]
+enum EbookReaderWorkPage {
+    MainPage,
+    ReadBookPage,
+}
 /* 电子书阅读器 */
 #[derive(Serialize, Deserialize, Debug)]
 struct EbookReader {
-    about_soft: String,         // 软件信息, 使用方法
-    cfg_json_path: String,      // 配置文件路径
+    about_soft: String,          // 软件信息, 使用方法
+    cfg_json_path: String,       // 配置文件路径
     menu: BTreeMap<i32, String>, // 菜单
     books: Vec<BookInfo>,
+    read_book_flag: bool,
+    workpage: EbookReaderWorkPage,
 }
 
 /* 电子书阅读器的方法 */
@@ -55,7 +75,7 @@ impl EbookReader {
                         book.title, book.author, book.path, book.progress
                     );
                 }
-
+                
                 Ok(reader)
             }
             Err(e) => {
@@ -104,6 +124,8 @@ impl EbookReader {
                     cfg_json_path: String::from(config_path),
                     menu: BTreeMap::new(),
                     books: Vec::new(),
+                    read_book_flag: false,
+                    workpage: EbookReaderWorkPage::MainPage,
                 };
                 // 菜单
                 reader.menu.insert(0, "check book".to_string());
@@ -112,6 +134,8 @@ impl EbookReader {
                 reader.menu.insert(3, "read book".to_string());
                 reader.menu.insert(4, "exit".to_string());
                 reader.to_json(config_path)?;
+                
+                // 启动按键监听线程处理事件
 
                 Ok(reader)
             }
@@ -169,6 +193,38 @@ impl EbookReader {
         }
     }
 
+    /**
+     * @description: 读书时的快捷键处理
+     * @param {*} mut
+     * @param {*} inkey 输入按键原始值
+     * @return {*}
+     */
+    pub fn get_input_key(&mut self) -> Result<(), io::Error> {
+        // 去除无效字符, 包含回车
+        let key = String::new();
+        let mut key_buf = [0; 1];
+        io::stdin().read(&mut key_buf).unwrap();
+        println!("press key{}", key_buf[0]);
+        match key {
+            // "\\" => {
+            //     // 退出
+            //     self.to_json(self.cfg_json_path.as_str()).unwrap();
+            // },
+            _ => {
+                if key.is_empty() {
+                    // 空格键
+                } else {
+                    println!("hotkey: {}", key);
+                }
+            }
+        }
+        Ok(())
+    }
+    /**
+     * @description: 读书, 根据书籍的进度读取
+     * @param {*} mut
+     * @return {*}
+     */
     fn read_book(&mut self) {
         println!("input book index:");
         self.check_save_book();
@@ -183,79 +239,99 @@ impl EbookReader {
         }
 
         let book = &self.books[book_index];
-        
+
         let mut file = fs::File::open(&book.path).unwrap();
         // 打开书, 从 progress 位置开始读
         println!("open book: {}, progress: {}", book.path, book.progress);
-        file.seek(io::SeekFrom::Start((book.progress * 100.0) as u64)).unwrap();
+        file.seek(io::SeekFrom::Start((book.progress * 100.0) as u64))
+            .unwrap();
 
-        loop {
-            let mut buf = [0u8; 20];
-            let _ = file.read_exact(&mut buf).unwrap();
-            // 尝试将字节转换为字符串
-            match std::str::from_utf8(&buf) {
-                Ok(s) => {
-                    println!("{}", s);
+        let book_content = BufReader::new(file);
+        let mut pre_linelen = 0;
 
-                    let mut input = String::new();
-                    io::stdin().read_line(&mut input).unwrap();
+        // 启动线程监听按键
+        let arc_self = Arc::new(Mutex::new(self));
+        let arc_tef = Arc::new(Mutex::new(false));
 
-                    // trim() 去掉两端的空白字符（包括回车和换行符）
-                    if input.trim().is_empty() {
-                        continue;
-                    } else if input.trim() == "\\" {
-                        println!("Exiting...");
-                        break;
-                    } else {
-                        println!("Invalid input. Press Enter to continue or '\\' to exit.");
-                    }
-                },
-                Err(e) => {
-                    println!("The data read is not valid UTF-8.{}", e);
-                    // break;
-                },
+        let t_self = Arc::clone(&arc_self);
+        let tef: Arc<Mutex<bool>> = Arc::clone(&arc_tef);
+        let thread = thread::spawn(move || {
+            while *tef.lock().unwrap() == false {
+                t_self.lock().unwrap().get_input_key().unwrap();
             }
+        });
+
+        // 开始读书
+        for lines in book_content.lines() {
+            match lines {
+                Ok(line) => {
+                    // 如果获取到的是空行直接下一行
+                    if line.is_empty() {
+                        continue;
+                    }
+                    print!("\r{}{}", " ".repeat(pre_linelen), "\r"); // 清空当前行
+                    io::stdout().flush().unwrap(); // 强制刷新输出
+
+                    print!("{}", line.trim()); // 输出新的一行
+                    io::stdout().flush().unwrap(); // 强制刷新输出
+                    pre_linelen = line.len();
+                    sleep(Duration::from_millis(1000));
+                    
+                    let tef: Arc<Mutex<bool>> = Arc::clone(&arc_tef);
+                    *tef.lock().unwrap() = true;
+                    break;
+                }
+                Err(e) => {
+                    println!("read book error: {}", e);
+                }
+            };
         }
+
+        thread.join().unwrap();
     }
 
-    pub fn run(&mut self) {
+    pub fn run(&mut self) -> i32 {
         self.show_menu();
+        let mut ret = 0;
+        let mut choice = String::new();
+        io::stdin().read_line(&mut choice).unwrap();
 
-        loop {
-            let mut choice = String::new();
-            io::stdin().read_line(&mut choice).unwrap();
-            match choice.trim().parse::<i32>() {
-                Ok(menu_num) => match menu_num {
-                    0 => {
-                        self.check_save_book();
-                    }
-                    1 => {
-                        self.add_book();
-                    }
-                    2 => {
-                        println!("delete book");
-                    }
-                    3 => {
-                        self.read_book();
-                    }
-                    4 => {
-                        break;
-                    }
-                    _ => {
-                        println!("menu_num not supported!");
-                        self.show_menu();
-                    }
-                },
-                _ => {
-                    println!("please input menu number!");
+        match choice.trim().parse::<i32>() {
+            Ok(menu_num) => match menu_num {
+                0 => {
+                    self.check_save_book();
                 }
+                1 => {
+                    self.add_book();
+                }
+                2 => {
+                    println!("delete book");
+                }
+                3 => {
+                    self.read_book();
+                }
+                4 => {
+                    ret = 1;
+                }
+                _ => {
+                    println!("menu_num not supported!");
+                    self.show_menu();
+                }
+            },
+            _ => {
+                println!("please input menu number!");
             }
         }
+        return ret;
     }
 }
 
 fn main() -> Result<(), io::Error> {
     let mut book_reader: EbookReader = EbookReader::new(&config!())?;
-    book_reader.run();
+    loop {
+        if book_reader.run() == 1 {
+            break;
+        }
+    }
     Ok(())
 }
