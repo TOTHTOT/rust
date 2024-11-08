@@ -1,7 +1,9 @@
+use env_logger::Builder;
+use log::{debug, error, warn, LevelFilter};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::io::{self, BufRead, BufReader, Read, Seek, Write};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc};
 use std::thread::sleep;
 use std::time::Duration;
 use std::{fs, thread};
@@ -75,7 +77,7 @@ impl EbookReader {
                         book.title, book.author, book.path, book.progress
                     );
                 }
-                
+
                 Ok(reader)
             }
             Err(e) => {
@@ -134,7 +136,7 @@ impl EbookReader {
                 reader.menu.insert(3, "read book".to_string());
                 reader.menu.insert(4, "exit".to_string());
                 reader.to_json(config_path)?;
-                
+
                 // 启动按键监听线程处理事件
 
                 Ok(reader)
@@ -199,7 +201,7 @@ impl EbookReader {
      * @param {*} inkey 输入按键原始值
      * @return {*}
      */
-    pub fn get_input_key(&mut self) -> Result<(), io::Error> {
+    pub fn get_input_key() -> Result<(), io::Error> {
         // 去除无效字符, 包含回车
         let key = String::new();
         let mut key_buf = [0; 1];
@@ -249,15 +251,18 @@ impl EbookReader {
         let book_content = BufReader::new(file);
         let mut pre_linelen = 0;
 
-        // 启动线程监听按键
-        let arc_self = Arc::new(Mutex::new(self));
-        let arc_tef = Arc::new(Mutex::new(false));
-
-        let t_self = Arc::clone(&arc_self);
-        let tef: Arc<Mutex<bool>> = Arc::clone(&arc_tef);
+        // 创建通道实现通信 启动线程监听按键
+        let (tx, rx) = mpsc::channel();
+        let tx1 = tx.clone();
         let thread = thread::spawn(move || {
-            while *tef.lock().unwrap() == false {
-                t_self.lock().unwrap().get_input_key().unwrap();
+            let mut times = 0;
+            loop {
+                if times > 10 {
+                    tx1.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
+                    break;
+                }
+                tx1.send(EbookReaderHotKeyType::NextLine).unwrap();
+                times += 1;
             }
         });
 
@@ -275,14 +280,29 @@ impl EbookReader {
                     print!("{}", line.trim()); // 输出新的一行
                     io::stdout().flush().unwrap(); // 强制刷新输出
                     pre_linelen = line.len();
-                    sleep(Duration::from_millis(1000));
-                    
-                    let tef: Arc<Mutex<bool>> = Arc::clone(&arc_tef);
-                    *tef.lock().unwrap() = true;
-                    break;
+                    match rx.recv() {
+                        Ok(EbookReaderHotKeyType::ExitReadMode) => {
+                            debug!("recv exit read mode");
+                            break;
+                        }
+                        Ok(EbookReaderHotKeyType::NextLine) => {
+                            continue;
+                        }
+                        Ok(EbookReaderHotKeyType::PreviousLine) => {
+                            continue;
+                        }
+                        Ok(EbookReaderHotKeyType::Unsupport) => {
+                            debug!("unsupport key, exit");
+                            break;
+                        }
+                        Err(e) => {
+                            error!("rx error: {e}");
+                            break;
+                        }
+                    }
                 }
                 Err(e) => {
-                    println!("read book error: {}", e);
+                    error!("read book error: {}", e);
                 }
             };
         }
@@ -305,7 +325,7 @@ impl EbookReader {
                     self.add_book();
                 }
                 2 => {
-                    println!("delete book");
+                    debug!("delete book");
                 }
                 3 => {
                     self.read_book();
@@ -314,12 +334,12 @@ impl EbookReader {
                     ret = 1;
                 }
                 _ => {
-                    println!("menu_num not supported!");
+                    warn!("menu_num not supported!");
                     self.show_menu();
                 }
             },
             _ => {
-                println!("please input menu number!");
+                warn!("please input menu number!");
             }
         }
         return ret;
@@ -327,7 +347,24 @@ impl EbookReader {
 }
 
 fn main() -> Result<(), io::Error> {
+    // 自定义日志格式
+    Builder::new()
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "{} [{}] [{}:{}] [{}] - {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.file().unwrap_or("unknown"),
+                record.line().unwrap_or(0),
+                record.target(), // 获取模块路径，通常可表示函数名
+                record.args()
+            )
+        })
+        .filter(None, LevelFilter::Debug)
+        .init();
     let mut book_reader: EbookReader = EbookReader::new(&config!())?;
+    debug!("start ebook reader");
     loop {
         if book_reader.run() == 1 {
             break;

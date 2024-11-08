@@ -13,8 +13,9 @@
       "title": "",
       "path": "./lq.txt",
       "author": "",
-      "progress": 0.0
+      "progress": 1.0
     }
   ],
-  "read_book_flag": false
+  "read_book_flag": false,
+  "workpage": "MainPage"
 }
