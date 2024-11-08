@@ -1,8 +1,8 @@
 use env_logger::Builder;
 use log::{debug, error, warn, LevelFilter};
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::io::{self, BufRead, BufReader, Seek, Write};
+use std::io::{self, BufRead, BufReader, Read, Seek, Write};
 use std::sync::mpsc;
 use std::{fs, thread};
 use termion::input::TermRead;
@@ -214,9 +214,9 @@ impl EbookReader {
      */
     pub fn get_input_key() -> Result<EbookReaderHotKeyType, io::Error> {
         let stdin = io::stdin();
-        
+
         // 让终端进入原始模式, 不然有些按键会被替换成其他字符导致不能正确接收按键输入
-        let mut stdout = io::stdout().into_raw_mode().unwrap();
+        let mut _stdout = io::stdout().into_raw_mode().unwrap();
 
         for c in stdin.keys() {
             match c.unwrap() {
@@ -263,7 +263,7 @@ impl EbookReader {
         file.seek(io::SeekFrom::Start((book.progress * 100.0) as u64))
             .unwrap();
 
-        let book_content = BufReader::new(file);
+        let mut book_content = BufReader::new(file);
         let mut pre_linelen = 0;
 
         // 创建通道实现通信 启动线程监听按键
@@ -304,44 +304,77 @@ impl EbookReader {
         });
 
         // 开始读书
-        for lines in book_content.lines() {
-            match lines {
-                Ok(line) => {
-                    // 如果获取到的是空行直接下一行
-                    if line.is_empty() {
-                        continue;
-                    }
-                    print!("\r{}{}", " ".repeat(pre_linelen), "\r"); // 清空当前行
-                    io::stdout().flush().unwrap(); // 强制刷新输出
+        let mut line = String::new();
+        let mut current_line_remain = 0; // 当前行已经显示的字符, == 0时才允许读取下一行
 
-                    print!("{}", line.trim()); // 输出新的一行
-                    io::stdout().flush().unwrap(); // 强制刷新输出
-                    pre_linelen = line.len();
-                    match rx.recv() {
-                        Ok(EbookReaderHotKeyType::ExitReadMode) => {
-                            debug!("recv exit read mode");
-                            break;
-                        }
-                        Ok(EbookReaderHotKeyType::NextLine) => {
-                            continue;
-                        }
-                        Ok(EbookReaderHotKeyType::PreviousLine) => {
-                            continue;
-                        }
-                        Ok(EbookReaderHotKeyType::Unsupport) => {
-                            debug!("unsupport key, exit");
-                            break;
-                        }
-                        Err(e) => {
-                            error!("rx error: {e}");
-                            break;
-                        }
-                    }
+        loop {
+            line.clear();
+            if current_line_remain <= 0 {
+                if BufRead::read_line(&mut book_content, &mut line).unwrap() == 0 {
+                    debug!("read book end");
+                    break;
                 }
-                Err(e) => {
-                    error!("read book error: {}", e);
+                current_line_remain += line.len();
+            }
+            // 减去已经显示了的字符
+            current_line_remain = {
+                if line.len() > 80 {
+                    line.len() - 80
+                } else {
+                    line.len()
                 }
             };
+            let line_tirm = line.trim();
+            // 如果获取到的是空行直接下一行
+            if line_tirm.is_empty() {
+                continue;
+            }
+            // debug!("raw line: {}", line.len());
+            print!("\r{}{}", " ".repeat(pre_linelen), "\r"); // 清空当前行
+            io::stdout().flush().unwrap(); // 强制刷新输出
+
+            // 计算要输出的内容, 要兼容终端的宽度, 不然会导致自动换行
+            let mut confirm_show_line = String::new();
+            confirm_show_line = {
+                let show_line = line.trim();
+                let show_chars: Vec<char> = show_line.chars().collect();
+                let show_line_len = {
+                    if line_tirm.len() > 80 {
+                        80
+                    } else {
+                        line_tirm.len()
+                    }
+                };
+                println!("show line len: {}", show_line_len);
+                line_tirm[0..show_line_len].to_string()
+            };
+            // 输出一行书籍内容
+            print!("{}", confirm_show_line); // 输出新的一行
+            io::stdout().flush().unwrap(); // 强制刷新输出
+
+            pre_linelen = confirm_show_line.len(); // 更新前一行长度
+
+            // 阻塞等待按键监听线程发来的消息
+            match rx.recv() {
+                Ok(EbookReaderHotKeyType::ExitReadMode) => {
+                    debug!("recv exit read mode");
+                    break;
+                }
+                Ok(EbookReaderHotKeyType::NextLine) => {
+                    continue;
+                }
+                Ok(EbookReaderHotKeyType::PreviousLine) => {
+                    continue;
+                }
+                Ok(EbookReaderHotKeyType::Unsupport) => {
+                    error!("unsupport key, exit");
+                    break;
+                }
+                Err(e) => {
+                    error!("rx error: {e}");
+                    break;
+                }
+            }
         }
 
         thread.join().unwrap();
