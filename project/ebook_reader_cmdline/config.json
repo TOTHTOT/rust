@@ -14,6 +14,18 @@
       "path": "./lq.txt",
       "author": "",
       "progress": 1.0
+    },
+    {
+      "title": "",
+      "path": "./lq.tx",
+      "author": "",
+      "progress": 0.0
+    },
+    {
+      "title": "",
+      "path": "./lq.txt",
+      "author": "",
+      "progress": 0.0
     }
   ],
   "read_book_flag": false,

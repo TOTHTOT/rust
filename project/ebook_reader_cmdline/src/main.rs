@@ -2,11 +2,11 @@ use env_logger::Builder;
 use log::{debug, error, warn, LevelFilter};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::io::{self, BufRead, BufReader, Read, Seek, Write};
-use std::sync::{mpsc};
-use std::thread::sleep;
-use std::time::Duration;
+use std::io::{self, BufRead, BufReader, Seek, Write};
+use std::sync::mpsc;
 use std::{fs, thread};
+use termion::input::TermRead;
+use termion::raw::IntoRawMode;
 
 /* 宏定义 */
 // 阅读器配置信息报错位置宏
@@ -39,11 +39,23 @@ impl BookInfo {
 
 /* 按键对应事件枚举 */
 #[allow(dead_code)]
+#[derive(Debug)]
 enum EbookReaderHotKeyType {
     NextLine,
     PreviousLine,
     ExitReadMode,
     Unsupport,
+}
+#[allow(dead_code)]
+impl EbookReaderHotKeyType {
+    pub fn transform_keytype(key: u8) -> EbookReaderHotKeyType {
+        match key {
+            0x0a => EbookReaderHotKeyType::NextLine,
+            66 => EbookReaderHotKeyType::PreviousLine,
+            0x5c => EbookReaderHotKeyType::ExitReadMode,
+            _ => EbookReaderHotKeyType::Unsupport,
+        }
+    }
 }
 
 /* 阅读器工作页面 */
@@ -196,31 +208,34 @@ impl EbookReader {
     }
 
     /**
-     * @description: 读书时的快捷键处理
-     * @param {*} mut
-     * @param {*} inkey 输入按键原始值
+     * @description: 读书时的快捷键处理, 阻塞接收, 使用 termion 库
+     * 目前监听  PgUp, PgDown, Esc, 通过 通道 传递给主线程处理
      * @return {*}
      */
-    pub fn get_input_key() -> Result<(), io::Error> {
-        // 去除无效字符, 包含回车
-        let key = String::new();
-        let mut key_buf = [0; 1];
-        io::stdin().read(&mut key_buf).unwrap();
-        println!("press key{}", key_buf[0]);
-        match key {
-            // "\\" => {
-            //     // 退出
-            //     self.to_json(self.cfg_json_path.as_str()).unwrap();
-            // },
-            _ => {
-                if key.is_empty() {
-                    // 空格键
-                } else {
-                    println!("hotkey: {}", key);
+    pub fn get_input_key() -> Result<EbookReaderHotKeyType, io::Error> {
+        let stdin = io::stdin();
+        
+        // 让终端进入原始模式, 不然有些按键会被替换成其他字符导致不能正确接收按键输入
+        let mut stdout = io::stdout().into_raw_mode().unwrap();
+
+        for c in stdin.keys() {
+            match c.unwrap() {
+                termion::event::Key::PageDown => {
+                    return Ok(EbookReaderHotKeyType::NextLine);
+                }
+                termion::event::Key::PageUp => {
+                    return Ok(EbookReaderHotKeyType::PreviousLine);
+                }
+                termion::event::Key::Esc => {
+                    return Ok(EbookReaderHotKeyType::ExitReadMode);
+                }
+                _ => {
+                    debug!("unsupported key pressed");
+                    return Ok(EbookReaderHotKeyType::Unsupport);
                 }
             }
         }
-        Ok(())
+        Err(io::Error::new(io::ErrorKind::Other, "No key event"))
     }
     /**
      * @description: 读书, 根据书籍的进度读取
@@ -255,14 +270,36 @@ impl EbookReader {
         let (tx, rx) = mpsc::channel();
         let tx1 = tx.clone();
         let thread = thread::spawn(move || {
-            let mut times = 0;
             loop {
-                if times > 10 {
-                    tx1.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
-                    break;
+                match EbookReader::get_input_key() {
+                    Ok(keytype) => {
+                        match keytype {
+                            EbookReaderHotKeyType::ExitReadMode => {
+                                tx1.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
+                                break;
+                            }
+                            EbookReaderHotKeyType::NextLine => {
+                                // 下一行
+                                tx1.send(EbookReaderHotKeyType::NextLine).unwrap();
+                            }
+                            EbookReaderHotKeyType::PreviousLine => {
+                                // 上一行
+                                debug!("prev line");
+                                continue;
+                            }
+                            EbookReaderHotKeyType::Unsupport => {
+                                tx1.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
+                                error!("unsupport key: {:?}", keytype);
+                                break;
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        tx1.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
+                        error!("get input key error: {}", e);
+                        break;
+                    }
                 }
-                tx1.send(EbookReaderHotKeyType::NextLine).unwrap();
-                times += 1;
             }
         });
 
@@ -352,12 +389,11 @@ fn main() -> Result<(), io::Error> {
         .format(|buf, record| {
             writeln!(
                 buf,
-                "{} [{}] [{}:{}] [{}] - {}",
+                "{} [{}] [{}:{}] - {}",
                 chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
                 record.level(),
                 record.file().unwrap_or("unknown"),
                 record.line().unwrap_or(0),
-                record.target(), // 获取模块路径，通常可表示函数名
                 record.args()
             )
         })
