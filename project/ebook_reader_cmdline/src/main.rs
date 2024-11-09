@@ -7,6 +7,7 @@ use std::sync::mpsc;
 use std::{fs, thread};
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
+use termion::terminal_size;
 
 /* 宏定义 */
 // 阅读器配置信息报错位置宏
@@ -18,7 +19,7 @@ macro_rules! config {
 // 终端能显示的字符宽度数量
 macro_rules! term_width {
     () => {
-        80
+        30
     };
 }
 /* 电子书相关信息 */
@@ -316,6 +317,10 @@ impl EbookReader {
                                          每次现实的内容的窗口在 line_char 中移动, 直到移动到末尾才读取下一行数据.  */
         let mut line_char: Vec<char> = Vec::new();
         let mut display_window_cnt = 0; // 已经显示的窗口数, 程序读一行时清空,显示一行数据时增加
+        let (_width, _height) = terminal_size().unwrap();
+        // let term_width = width as usize; // 获取终端宽度
+        let term_width = term_width!(); // 获取终端宽度
+        println!("term width: {}", term_width);
         loop {
             if current_line_remain <= 0 {
                 // 读取下一行时才清空不然在大于 term_width 字符情况下显示 term_width 字符后面内容时 line 没数据
@@ -333,8 +338,8 @@ impl EbookReader {
             }
             // 减去已经显示了的字符
             current_line_remain = {
-                if current_line_remain > term_width!() {
-                    current_line_remain - term_width!()
+                if current_line_remain > term_width {
+                    current_line_remain - term_width
                 } else {
                     current_line_remain - current_line_remain
                 }
@@ -352,10 +357,10 @@ impl EbookReader {
             // 计算要输出的内容, 要兼容终端的宽度, 不然会导致自动换行
             let confirm_show_line = {
                 let result = {
-                    let start_index = term_width!() * display_window_cnt;
+                    let start_index = term_width * display_window_cnt;
                     let end_index = {
-                        if line_char.len() > term_width!() + start_index{
-                            term_width!() * (display_window_cnt + 1)
+                        if line_char.len() > term_width + start_index{
+                            term_width * (display_window_cnt + 1)
                         }
                         else {
                             debug!("len = {}, start_index = {}", line_char.len(), start_index);
