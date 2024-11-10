@@ -21,3 +21,20 @@
 4. - [ ]  推出读书流程刷新掉当前行内容;
 5. - [ ] 增加老板键;
 6. - [ ]  增加`上一行`功能;
+
+## 其他
+
+1. 交叉编译
+
+```shell
+# 在 .cargo/config.toml 添加如下内容, 如果没有这个文件就创建
+[target.armv7-unknown-linux-gnueabihf]
+linker = "arm-linux-gnueabihf-gcc"
+
+sudo apt-get install gcc-arm-linux-gnueabihf # 安装交叉编译器, 如果有就不要安装
+
+rustup target add armv7-unknown-linux-gnueabihf # 确认 cargo 和 Rust 工具链是否配置为使用交叉编译环境
+
+cargo build --target=armv7-unknown-linux-gnueabihf --release # 编译v3s平台程序
+
+```
