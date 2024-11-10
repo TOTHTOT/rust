@@ -2,7 +2,7 @@ use env_logger::Builder;
 use log::{debug, error, info, warn, LevelFilter};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::io::{self, BufRead, BufReader, Seek, Write, Read};
+use std::io::{self, BufRead, BufReader, Read, Seek, Write};
 use std::sync::mpsc;
 use std::{fs, thread};
 use termion::input::TermRead;
@@ -28,9 +28,10 @@ struct BookInfo {
     title: String,
     path: String,
     author: String,
-    progress: u64, // 进度, 和文件指针相关
-    filesize: u64, // 文件大小
+    progress: u64,         // 进度, 和文件指针相关
+    filesize: u64,         // 文件大小
     progress_percent: f32, // 进度百分比, 导入书籍使用
+    file_avilable: bool,   // 文件是否可用
 }
 
 /* 电子书的方法 */
@@ -46,6 +47,7 @@ impl BookInfo {
             progress: file_size * (progress_percent / 100.0) as u64,
             filesize: file_size,
             progress_percent,
+            file_avilable: true,
         }
     }
 }
@@ -189,17 +191,18 @@ impl EbookReader {
             progress: 0, // 暂时是0 后面统一处理
             filesize: 0,
             progress_percent: progress_percent.trim().parse().unwrap(),
+            file_avilable: true,
         };
         // 根据设定的阅读进度转为书籍阅读时的指针偏移地址
         book.progress = {
             let filesize = fs::metadata(&book.path).unwrap().len();
             book.filesize = filesize;
             let mut file_start_seek = (filesize as f32 * (book.progress_percent / 100.0)) as u64;
-            
+
             // 确保起始位置是有效的 UTF-8 数据
             let mut file = fs::File::open(&book.path).unwrap();
             file.seek(io::SeekFrom::Start(file_start_seek)).unwrap();
-            
+
             let mut buffer = [0; 4]; // 最长的 UTF-8 字符可能占用 4 字节
             while file.read_exact(&mut buffer).is_ok() {
                 if let Ok(_) = std::str::from_utf8(&buffer) {
@@ -208,15 +211,14 @@ impl EbookReader {
                 file_start_seek += 1; // 向前移动字节，继续检查
                 file.seek(io::SeekFrom::Start(file_start_seek)).unwrap();
             }
-            
+
             info!(
                 "filesize: {}, adjusted file_start_seek: {}, progress_percent: {}",
                 filesize, file_start_seek, book.progress_percent
             );
             file_start_seek
         };
-        
-        
+
         info!("book is saved {:#?}", book);
         self.books.push(book);
 
@@ -224,16 +226,26 @@ impl EbookReader {
     }
 
     /**
-     * @description: 打印保存的书籍信息
+     * @description: 打印保存的书籍信息, 会判断文件是否存在, 并标记 file_avilable 属性
      * @param {*} self
      * @return {*}
      */
-    pub fn check_save_book(&self) {
-        let mut i = 0;
-        for book in &self.books {
-            println!("[{}]path: {}, progress: {}", i, book.path, book.progress);
-            i += 1;
+    pub fn check_save_book(&mut self) {
+        let book_len = self.books.len();
+        for i in 0..book_len {
+            // 检测文件是否存在
+            let book = &mut self.books[i];
+            book.file_avilable = fs::metadata(&book.path).is_ok();
+            println!(
+                "[{}]path: {}, progress_percent: {}%, file_avilable: {}",
+                i,
+                book.path,
+                book.progress_percent / 100.0,
+                book.file_avilable
+            );
+            self.to_json(&self.cfg_json_path).expect("save json file failed");
         }
+        println!("");
     }
 
     /**
@@ -337,8 +349,7 @@ impl EbookReader {
         // 打开书, 从 progress 位置开始读
         let mut file = fs::File::open(&book.path).unwrap();
         println!("open book: {}, progress: {}", book.path, book.progress);
-        file.seek(io::SeekFrom::Start(book.progress))
-            .unwrap();
+        file.seek(io::SeekFrom::Start(book.progress)).unwrap();
         // 书籍内容加入缓冲区
         let mut book_content = BufReader::new(file);
         let mut pre_linelen = 0;
@@ -437,10 +448,15 @@ impl EbookReader {
                 }
                 Ok(EbookReaderHotKeyType::NextLine) => {
                     // 保存当前阅读进度
-                    self.books[book_index].progress = book_content.stream_position().expect("get book progress error");
+                    self.books[book_index].progress = book_content
+                        .stream_position()
+                        .expect("get book progress error");
                     debug!("save book progress: {}", self.books[book_index].progress);
-                    self.books[book_index].progress_percent = self.books[book_index].progress as f32 / self.books[book_index].filesize as f32;
-                    self.to_json(&self.cfg_json_path).expect("save book progress error");
+                    self.books[book_index].progress_percent = self.books[book_index].progress
+                        as f32
+                        / self.books[book_index].filesize as f32;
+                    self.to_json(&self.cfg_json_path)
+                        .expect("save book progress error");
                     continue;
                 }
                 Ok(EbookReaderHotKeyType::PreviousLine) => {
