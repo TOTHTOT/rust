@@ -244,6 +244,44 @@ impl EbookReader {
         }
         Err(io::Error::new(io::ErrorKind::Other, "No key event"))
     }
+
+    /**
+     * @description: 输出一行内容, 根据窗口和缓冲区计算输出内容
+     * @return {*}
+     */
+    fn display_line_segment(
+        &mut self,
+        line_char: &[char],
+        term_width: usize,
+        display_window_cnt: &mut usize,
+        pre_linelen: &mut usize,
+    ) {
+        // 清空当前行
+        print!("\r{}{}", " ".repeat(*pre_linelen), "\r");
+        io::stdout().flush().unwrap(); // 强制刷新输出
+
+        // 计算要输出的内容
+        let confirm_show_line = {
+            let start_index = term_width * *display_window_cnt;
+            let end_index = {
+                if line_char.len() > term_width + start_index {
+                    term_width * (*display_window_cnt + 1)
+                } else {
+                    line_char.len()
+                }
+            };
+            line_char[start_index..end_index].iter().collect::<String>()
+        };
+
+        *display_window_cnt += 1;
+
+        // 输出一行书籍内容
+        print!("{}", confirm_show_line);
+        io::stdout().flush().unwrap(); // 强制刷新输出
+
+        *pre_linelen = confirm_show_line.len(); // 更新前一行长度
+    }
+
     /**
      * @description: 读书, 根据书籍的进度读取
      * @param {*} mut
@@ -350,34 +388,13 @@ impl EbookReader {
             if line_tirm.is_empty() {
                 continue;
             }
-            // debug!("raw line: {}", line.len());
-            print!("\r{}{}", " ".repeat(pre_linelen), "\r"); // 清空当前行
-            io::stdout().flush().unwrap(); // 强制刷新输出
-
-            // 计算要输出的内容, 要兼容终端的宽度, 不然会导致自动换行
-            let confirm_show_line = {
-                let result = {
-                    let start_index = term_width * display_window_cnt;
-                    let end_index = {
-                        if line_char.len() > term_width + start_index{
-                            term_width * (display_window_cnt + 1)
-                        }
-                        else {
-                            debug!("len = {}, start_index = {}", line_char.len(), start_index);
-                            line_char.len()
-                        }
-                    };
-                    line_char[start_index..end_index].iter().collect::<String>()
-                };
-                result
-            };
-            display_window_cnt += 1;
-
-            // 输出一行书籍内容
-            print!("{}", confirm_show_line); // 输出新的一行
-            io::stdout().flush().unwrap(); // 强制刷新输出
-
-            pre_linelen = confirm_show_line.len(); // 更新前一行长度
+            // 显示窗口数据
+            self.display_line_segment(
+                &line_char,
+                term_width,
+                &mut display_window_cnt,
+                &mut pre_linelen,
+            );
 
             // 阻塞等待按键监听线程发来的消息
             match rx.recv() {
