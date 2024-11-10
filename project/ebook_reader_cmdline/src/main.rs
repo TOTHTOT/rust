@@ -1,8 +1,8 @@
 use env_logger::Builder;
-use log::{debug, error, warn, LevelFilter};
+use log::{debug, error, info, warn, LevelFilter};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
-use std::io::{self, BufRead, BufReader, Seek, Write};
+use std::io::{self, BufRead, BufReader, Seek, Write, Read};
 use std::sync::mpsc;
 use std::{fs, thread};
 use termion::input::TermRead;
@@ -28,18 +28,24 @@ struct BookInfo {
     title: String,
     path: String,
     author: String,
-    progress: f32,
+    progress: u64, // 进度, 和文件指针相关
+    filesize: u64, // 文件大小
+    progress_percent: f32, // 进度百分比, 导入书籍使用
 }
 
 /* 电子书的方法 */
 #[allow(dead_code)]
 impl BookInfo {
-    pub fn new(title: String, author: String, path: String, progress: f32) -> BookInfo {
+    pub fn new(title: String, author: String, path: String, progress_percent: f32) -> BookInfo {
+        // 获取文件大小
+        let file_size = fs::metadata(path.clone()).unwrap().len();
         BookInfo {
             title,
             author,
             path,
-            progress,
+            progress: file_size * (progress_percent / 100.0) as u64,
+            filesize: file_size,
+            progress_percent,
         }
     }
 }
@@ -88,10 +94,10 @@ impl EbookReader {
         // 检测配置文件是否存在
         match EbookReader::check_config(config_path) {
             Ok(reader) => {
-                println!("total books: {}", reader.books.len());
+                info!("total books: {}", reader.books.len());
 
                 for book in &reader.books {
-                    println!(
+                    info!(
                         "title: {}, author: {}, path: {}, progress: {}",
                         book.title, book.author, book.path, book.progress
                     );
@@ -174,17 +180,44 @@ impl EbookReader {
         io::stdin().read_line(&mut path).unwrap();
 
         println!("please input book progress:");
-        let mut progress = String::new();
-        io::stdin().read_line(&mut progress).unwrap();
-
-        let book = BookInfo {
+        let mut progress_percent = String::new();
+        io::stdin().read_line(&mut progress_percent).unwrap();
+        let mut book = BookInfo {
             title: String::new(),
             author: String::new(),
             path: path.trim().to_string(),
-            progress: progress.trim().parse().unwrap(),
+            progress: 0, // 暂时是0 后面统一处理
+            filesize: 0,
+            progress_percent: progress_percent.trim().parse().unwrap(),
         };
-
-        println!("book is saved {:?}", book);
+        // 根据设定的阅读进度转为书籍阅读时的指针偏移地址
+        book.progress = {
+            let filesize = fs::metadata(&book.path).unwrap().len();
+            book.filesize = filesize;
+            let mut file_start_seek = (filesize as f32 * (book.progress_percent / 100.0)) as u64;
+            
+            // 确保起始位置是有效的 UTF-8 数据
+            let mut file = fs::File::open(&book.path).unwrap();
+            file.seek(io::SeekFrom::Start(file_start_seek)).unwrap();
+            
+            let mut buffer = [0; 4]; // 最长的 UTF-8 字符可能占用 4 字节
+            while file.read_exact(&mut buffer).is_ok() {
+                if let Ok(_) = std::str::from_utf8(&buffer) {
+                    break; // 找到有效的 UTF-8 起始位置
+                }
+                file_start_seek += 1; // 向前移动字节，继续检查
+                file.seek(io::SeekFrom::Start(file_start_seek)).unwrap();
+            }
+            
+            info!(
+                "filesize: {}, adjusted file_start_seek: {}, progress_percent: {}",
+                filesize, file_start_seek, book.progress_percent
+            );
+            file_start_seek
+        };
+        
+        
+        info!("book is saved {:#?}", book);
         self.books.push(book);
 
         self.to_json(self.cfg_json_path.as_str()).unwrap();
@@ -304,7 +337,7 @@ impl EbookReader {
         // 打开书, 从 progress 位置开始读
         let mut file = fs::File::open(&book.path).unwrap();
         println!("open book: {}, progress: {}", book.path, book.progress);
-        file.seek(io::SeekFrom::Start((book.progress * 100.0) as u64))
+        file.seek(io::SeekFrom::Start(book.progress))
             .unwrap();
         // 书籍内容加入缓冲区
         let mut book_content = BufReader::new(file);
@@ -358,7 +391,7 @@ impl EbookReader {
         let (_width, _height) = terminal_size().unwrap();
         // let term_width = width as usize; // 获取终端宽度
         let term_width = term_width!(); // 获取终端宽度
-        println!("term width: {}", term_width);
+        debug!("term width: {}", term_width);
         loop {
             if current_line_remain <= 0 {
                 // 读取下一行时才清空不然在大于 term_width 字符情况下显示 term_width 字符后面内容时 line 没数据
@@ -403,6 +436,11 @@ impl EbookReader {
                     break;
                 }
                 Ok(EbookReaderHotKeyType::NextLine) => {
+                    // 保存当前阅读进度
+                    self.books[book_index].progress = book_content.stream_position().expect("get book progress error");
+                    debug!("save book progress: {}", self.books[book_index].progress);
+                    self.books[book_index].progress_percent = self.books[book_index].progress as f32 / self.books[book_index].filesize as f32;
+                    self.to_json(&self.cfg_json_path).expect("save book progress error");
                     continue;
                 }
                 Ok(EbookReaderHotKeyType::PreviousLine) => {

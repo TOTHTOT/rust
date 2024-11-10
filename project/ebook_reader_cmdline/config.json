@@ -13,19 +13,9 @@
       "title": "",
       "path": "./lq.txt",
       "author": "",
-      "progress": 1.0
-    },
-    {
-      "title": "",
-      "path": "./lq.tx",
-      "author": "",
-      "progress": 0.0
-    },
-    {
-      "title": "",
-      "path": "./lq.txt",
-      "author": "",
-      "progress": 0.0
+      "progress": 264409,
+      "filesize": 2394055,
+      "progress_percent": 0.110443994
     }
   ],
   "read_book_flag": false,
