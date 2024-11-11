@@ -243,7 +243,8 @@ impl EbookReader {
                 book.progress_percent / 100.0,
                 book.file_avilable
             );
-            self.to_json(&self.cfg_json_path).expect("save json file failed");
+            self.to_json(&self.cfg_json_path)
+                .expect("save json file failed");
         }
         println!("");
     }
@@ -264,7 +265,9 @@ impl EbookReader {
      * 目前监听  PgUp, PgDown, Esc, 通过 通道 传递给主线程处理
      * @return {*}
      */
-    pub fn get_input_key() -> Result<EbookReaderHotKeyType, io::Error> {
+    pub fn get_input_key(
+        tx: &mpsc::Sender<EbookReaderHotKeyType>,
+    ) -> Result<EbookReaderHotKeyType, io::Error> {
         let stdin = io::stdin();
 
         // 让终端进入原始模式, 不然有些按键会被替换成其他字符导致不能正确接收按键输入
@@ -273,17 +276,20 @@ impl EbookReader {
         for c in stdin.keys() {
             match c.unwrap() {
                 termion::event::Key::PageDown => {
+                    tx.send(EbookReaderHotKeyType::NextLine).unwrap();
                     return Ok(EbookReaderHotKeyType::NextLine);
                 }
                 termion::event::Key::PageUp => {
+                    tx.send(EbookReaderHotKeyType::PreviousLine).unwrap();
                     return Ok(EbookReaderHotKeyType::PreviousLine);
                 }
-                termion::event::Key::Esc => {
+                termion::event::Key::End => {
+                    tx.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
                     return Ok(EbookReaderHotKeyType::ExitReadMode);
                 }
                 _ => {
-                    debug!("unsupported key pressed");
-                    return Ok(EbookReaderHotKeyType::Unsupport);
+                    tx.send(EbookReaderHotKeyType::Unsupport).unwrap();
+                    return Err(io::Error::new(io::ErrorKind::Other, "Unsupported key"));
                 }
             }
         }
@@ -357,46 +363,33 @@ impl EbookReader {
         // 创建通道实现通信 启动线程监听按键
         let (tx, rx) = mpsc::channel();
         let tx1 = tx.clone();
-        let thread = thread::spawn(move || {
-            loop {
-                match EbookReader::get_input_key() {
-                    Ok(keytype) => {
-                        match keytype {
-                            EbookReaderHotKeyType::ExitReadMode => {
-                                tx1.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
-                                break;
-                            }
-                            EbookReaderHotKeyType::NextLine => {
-                                // 下一行
-                                tx1.send(EbookReaderHotKeyType::NextLine).unwrap();
-                            }
-                            EbookReaderHotKeyType::PreviousLine => {
-                                // 上一行
-                                debug!("prev line");
-                                continue;
-                            }
-                            EbookReaderHotKeyType::Unsupport => {
-                                tx1.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
-                                error!("unsupport key: {:?}", keytype);
-                                break;
-                            }
+        let thread = thread::spawn(move || loop {
+            match EbookReader::get_input_key(&tx1) {
+                Ok(key) => {
+                    match key {
+                        // 收到退出信号, 其他不处理
+                        EbookReaderHotKeyType::ExitReadMode => {
+                            break;
+                        }
+                        _ => {
+                            // 其他按键不处理
                         }
                     }
-                    Err(e) => {
-                        tx1.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
-                        error!("get input key error: {}", e);
-                        break;
-                    }
                 }
-            }
+                Err(e) => {
+                    error!("get input key error: {}", e);
+                    break;
+                }
+            };
         });
 
         // 开始读书
         let mut line = String::new();
         let mut current_line_remain = 0; // 当前行已经显示的字符, == 0时才允许读取下一行
-                                         /* 当前行字符, line 转换来的,
-                                         实现逻辑是: 当读取的一行内容大于终端宽度时, 需要分段处理,
-                                         每次现实的内容的窗口在 line_char 中移动, 直到移动到末尾才读取下一行数据.  */
+
+        /* 当前行字符, line 转换来的,
+        实现逻辑是: 当读取的一行内容大于终端宽度时, 需要分段处理,
+        每次现实的内容的窗口在 line_char 中移动, 直到移动到末尾才读取下一行数据.  */
         let mut line_char: Vec<char> = Vec::new();
         let mut display_window_cnt = 0; // 已经显示的窗口数, 程序读一行时清空,显示一行数据时增加
         let (_width, _height) = terminal_size().unwrap();
