@@ -50,6 +50,69 @@ impl BookInfo {
             file_avilable: true,
         }
     }
+
+    /**
+     * @description: 根据设定的阅读百分比获取文件指针位置
+     * 会修改 filesize 和 progress 字段
+     * @param {*} mut
+     * @return {*}
+     */    
+    pub fn cal_progress(&mut self) {
+        let filesize = fs::metadata(&self.path).unwrap().len();
+        self.filesize = filesize;
+        let mut file_start_seek = (filesize as f32 * (self.progress_percent / 100.0)) as u64;
+        debug!(
+            "filesize: {}, progress_percent: {}, initial file_start_seek: {}",
+            filesize, self.progress_percent, file_start_seek
+        );
+
+        let mut file = fs::File::open(&self.path).unwrap();
+        file.seek(io::SeekFrom::Start(file_start_seek)).unwrap();
+
+        let mut buffer = vec![0; 1]; // 单字节缓冲区用于检查逐个字节的 UTF-8 有效性
+        let mut utf8_check = Vec::new();
+        let mut valid_utf8_found = false;
+
+        while file_start_seek < filesize {
+            if file.read_exact(&mut buffer).is_err() {
+                break; // 到达文件末尾
+            }
+
+            utf8_check.push(buffer[0]);
+
+            // 检查当前积累的字节是否是有效的 UTF-8
+            if std::str::from_utf8(&utf8_check).is_ok() {
+                valid_utf8_found = true;
+                file_start_seek += 1;
+                break;
+            } else if utf8_check.len() > 4 {
+                // 如果积累的字节数超过 4 且不是有效的 UTF-8，清空重试
+                utf8_check.clear();
+                file_start_seek += 1;
+                file.seek(io::SeekFrom::Start(file_start_seek)).unwrap();
+            } else {
+                file_start_seek += 1;
+            }
+        }
+        info!(
+            "utf8_check: {:?}, file_start_seek: {}, len: {}",
+            utf8_check,
+            file_start_seek,
+            utf8_check.len(),
+        );
+
+        if !valid_utf8_found {
+            file_start_seek = 0; // 如果没找到有效 UTF-8，回退到文件开头
+            warn!("Failed to find valid UTF-8 boundary; defaulting to start of file.");
+        }
+
+        info!(
+            "filesize: {}, final file_start_seek: {}, progress_percent: {}",
+            filesize, file_start_seek, self.progress_percent
+        );
+        // 最终要减去查找的长度, 避免漏显示一个字符
+        self.progress = file_start_seek - utf8_check.len() as u64;
+    }
 }
 
 /* 按键对应事件枚举 */
@@ -194,30 +257,7 @@ impl EbookReader {
             file_avilable: true,
         };
         // 根据设定的阅读进度转为书籍阅读时的指针偏移地址
-        book.progress = {
-            let filesize = fs::metadata(&book.path).unwrap().len();
-            book.filesize = filesize;
-            let mut file_start_seek = (filesize as f32 * (book.progress_percent / 100.0)) as u64;
-
-            // 确保起始位置是有效的 UTF-8 数据
-            let mut file = fs::File::open(&book.path).unwrap();
-            file.seek(io::SeekFrom::Start(file_start_seek)).unwrap();
-
-            let mut buffer = [0; 4]; // 最长的 UTF-8 字符可能占用 4 字节
-            while file.read_exact(&mut buffer).is_ok() {
-                if let Ok(_) = std::str::from_utf8(&buffer) {
-                    break; // 找到有效的 UTF-8 起始位置
-                }
-                file_start_seek += 1; // 向前移动字节，继续检查
-                file.seek(io::SeekFrom::Start(file_start_seek)).unwrap();
-            }
-
-            info!(
-                "filesize: {}, adjusted file_start_seek: {}, progress_percent: {}",
-                filesize, file_start_seek, book.progress_percent
-            );
-            file_start_seek
-        };
+        book.cal_progress();
 
         info!("book is saved {:#?}", book);
         self.books.push(book);

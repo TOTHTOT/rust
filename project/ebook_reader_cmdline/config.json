@@ -11,20 +11,11 @@
   "books": [
     {
       "title": "",
-      "path": "tf",
+      "path": "jl.txt",
       "author": "",
-      "progress": 0,
-      "filesize": 0,
-      "progress_percent": 1.0,
-      "file_avilable": false
-    },
-    {
-      "title": "",
-      "path": "./lq.txt",
-      "author": "",
-      "progress": 289800,
-      "filesize": 2394055,
-      "progress_percent": 0.12104985,
+      "progress": 1174,
+      "filesize": 37097379,
+      "progress_percent": 0.00003164644,
       "file_avilable": true
     }
   ],
