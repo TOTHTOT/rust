@@ -106,6 +106,7 @@ impl BookCtrl {
 
                     self.current_line_remain = self.line_content.len();
                     self.display_window_cnt = 0;
+                    self.at_line_start = false;
                     debug!("current line_char remain: {}", self.current_line_remain);
 
                     return Ok(());
@@ -259,7 +260,6 @@ impl BookCtrl {
         };
 
         // 显示内容
-        self.at_line_start = false;
         self.show_line_by_term();
         self.display_window_cnt += 1;
     }
@@ -292,19 +292,18 @@ impl BookCtrl {
                     error!("read line fail: {}", e);
                 }
             }
-            // 减去已经显示了的字符
-            self.current_line_remain = {
-                if self.current_line_remain > self.term_width {
-                    self.current_line_remain - self.term_width
-                } else {
-                    self.current_line_remain - self.current_line_remain
+            debug!("current line remain: {}", self.current_line_remain);
+            // 上一行的 display_window_cnt 特殊处理, 上一行的内容长度大于终端宽度时, display_window_cnt 要为窗口最后一个
+            self.display_window_cnt = {
+                if self.line_content.len() > self.term_width {
+                    self.line_content.len() / self.term_width
+                }
+                else {
+                    0
                 }
             };
-            debug!("current line remain: {}", self.current_line_remain);
-
+            self.current_line_remain = 0;
             // 显示内容
-            self.display_window_cnt = 0;
-            self.at_line_start = false;
             self.show_line_by_term();
             self.display_window_cnt += 1;
         }
