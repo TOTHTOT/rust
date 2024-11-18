@@ -3,12 +3,12 @@ use log::{debug, error, info, trace, warn, LevelFilter};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::File;
+use std::io::SeekFrom;
 use std::io::{self, BufRead, BufReader, Read, Seek, Write};
 use std::sync::mpsc;
 use std::{fs, thread};
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
-use std::io::SeekFrom;
 
 /* 宏定义 */
 // 阅读器配置信息报错位置宏
@@ -90,6 +90,38 @@ impl BookCtrl {
     }
 
     /**
+     * @description: 读取一行原始数据, 并初始化一些参数
+     * @param {*} mut
+     * @return {*}
+     */
+    fn read_line_raw(&mut self) -> Result<(), io::Error> {
+        match BufRead::read_line(&mut self.book_content, &mut self.raw_line_content) {
+            Ok(_) => {
+                // debug!("read line: {}", self.raw_line_content);
+                // 需要判断是否是空行, 空行的话要再次
+                if self.raw_line_content.trim().len() != 0 {
+                    // 读取成功的一些参数初始化
+                    self.line_content.clear();
+                    self.line_content = self.raw_line_content.trim().chars().collect();
+
+                    self.current_line_remain = self.line_content.len();
+                    self.display_window_cnt = 0;
+                    debug!("current line_char remain: {}", self.current_line_remain);
+
+                    return Ok(());
+                } else {
+                    self.raw_line_content.clear();
+                    return Err(io::Error::new(io::ErrorKind::Other, "empty line"));
+                }
+            }
+            Err(e) => {
+                error!("read line fail: {}", e);
+                return Err(e);
+            }
+        };
+    }
+
+    /**
      * @description: 读取一行数据, 刷新缓冲区
      * @param {*} mut
      * @param {*} read_dir -1 上一行 1 下一行, 0 刷新当前行
@@ -99,29 +131,20 @@ impl BookCtrl {
         self.raw_line_content.clear();
         if read_dir == 1 {
             loop {
-                match BufRead::read_line(&mut self.book_content, &mut self.raw_line_content) {
+                match self.read_line_raw() {
                     Ok(_) => {
-                        // debug!("read line: {}", self.raw_line_content);
-                        // 需要判断是否是空行, 空行的话要再次
-                        if self.raw_line_content.trim().len() != 0 {
-                            // 读取成功的一些参数初始化
-                            self.line_content.clear();
-                            self.line_content = self.raw_line_content.trim().chars().collect();
-
-                            self.current_line_remain = self.line_content.len();
-                            self.display_window_cnt = 0;
-                            debug!("current line_char remain: {}", self.current_line_remain);
-
-                            return Ok(());
-                        } else {
-                            self.raw_line_content.clear();
-                        }
+                        return Ok(());
                     }
                     Err(e) => {
-                        error!("read line fail: {}", e);
-                        return Err(e);
+                        if e.kind() == io::ErrorKind::Other && e.to_string() == "empty line" {
+                            // 如果是空行, 继续读取
+                            continue;
+                        } else {
+                            error!("read line fail: {}", e);
+                            return Err(e);
+                        }
                     }
-                };
+                }
             }
         } else if read_dir == -1 {
             // 向后读取一行（上一行）
@@ -140,7 +163,9 @@ impl BookCtrl {
                 // 从当前位置向后回溯，读取字节直到遇到换行符或文件开头
                 while new_position > 0 {
                     new_position -= 1;
-                    self.book_content.seek(SeekFrom::Start(new_position)).unwrap();
+                    self.book_content
+                        .seek(SeekFrom::Start(new_position))
+                        .unwrap();
 
                     let mut byte = [0; 1];
                     self.book_content.read_exact(&mut byte).unwrap();
@@ -161,30 +186,7 @@ impl BookCtrl {
                 let line_str = String::from_utf8_lossy(&buffer).trim().to_string();
 
                 if !line_str.is_empty() {
-                    
-                    match BufRead::read_line(&mut self.book_content, &mut self.raw_line_content) {
-                        Ok(_) => {
-                            // debug!("read line: {}", self.raw_line_content);
-                            // 需要判断是否是空行, 空行的话要再次
-                            if self.raw_line_content.trim().len() != 0 {
-                                // 读取成功的一些参数初始化
-                                self.line_content.clear();
-                                self.line_content = self.raw_line_content.trim().chars().collect();
-    
-                                self.current_line_remain = self.line_content.len();
-                                self.display_window_cnt = 0;
-                                debug!("current line_char remain: {}", self.current_line_remain);
-    
-                                return Ok(());
-                            } else {
-                                self.raw_line_content.clear();
-                            }
-                        }
-                        Err(e) => {
-                            error!("read line fail: {}", e);
-                            return Err(e);
-                        }
-                    };
+                    self.read_line_raw()?;
                     return Ok(());
                 } else if new_position == 0 {
                     // 到达文件开头且没有找到非空行
@@ -246,6 +248,7 @@ impl BookCtrl {
                 }
             }
         }
+        debug!("current line remain: {}", self.current_line_remain);
         // 减去已经显示了的字符
         self.current_line_remain = {
             if self.current_line_remain > self.term_width {
@@ -254,7 +257,6 @@ impl BookCtrl {
                 self.current_line_remain - self.current_line_remain
             }
         };
-        debug!("current line remain: {}", self.current_line_remain);
 
         // 显示内容
         self.at_line_start = false;
@@ -688,6 +690,7 @@ impl EbookReader {
                     break;
                 }
                 Ok(EbookReaderHotKeyType::NextLine) => {
+                    trace!("next line");
                     bookctrl.next_line();
                     // 保存当前阅读进度
                     self.books[book_index].update_progress(&mut bookctrl.book_content);
@@ -697,6 +700,7 @@ impl EbookReader {
                     continue;
                 }
                 Ok(EbookReaderHotKeyType::PreviousLine) => {
+                    trace!("previous line");
                     bookctrl.previous_line();
                     // 保存当前阅读进度
                     self.books[book_index].update_progress(&mut bookctrl.book_content);
