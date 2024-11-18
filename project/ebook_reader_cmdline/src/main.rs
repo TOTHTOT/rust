@@ -1,5 +1,5 @@
 use env_logger::Builder;
-use log::{debug, error, info, warn, LevelFilter};
+use log::{debug, error, info, trace, warn, LevelFilter};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs::File;
@@ -8,6 +8,7 @@ use std::sync::mpsc;
 use std::{fs, thread};
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
+use std::io::SeekFrom;
 
 /* 宏定义 */
 // 阅读器配置信息报错位置宏
@@ -100,7 +101,8 @@ impl BookCtrl {
             loop {
                 match BufRead::read_line(&mut self.book_content, &mut self.raw_line_content) {
                     Ok(_) => {
-                        debug!("read line: {}", self.raw_line_content);
+                        // debug!("read line: {}", self.raw_line_content);
+                        // 需要判断是否是空行, 空行的话要再次
                         if self.raw_line_content.trim().len() != 0 {
                             // 读取成功的一些参数初始化
                             self.line_content.clear();
@@ -122,7 +124,74 @@ impl BookCtrl {
                 };
             }
         } else if read_dir == -1 {
-            return Ok(());
+            // 向后读取一行（上一行）
+            let mut new_position = self.book_content.seek(SeekFrom::Current(0)).unwrap();
+            if new_position == 0 {
+                // 如果在文件开头，无法再回退
+                warn!("Already at the beginning of the file.");
+                return Ok(());
+            }
+            trace!("start new_position: {}", new_position);
+            loop {
+                let mut buffer = vec![];
+                let mut char_count = 0;
+                let mut find_newline_cnt = 0;
+
+                // 从当前位置向后回溯，读取字节直到遇到换行符或文件开头
+                while new_position > 0 {
+                    new_position -= 1;
+                    self.book_content.seek(SeekFrom::Start(new_position)).unwrap();
+
+                    let mut byte = [0; 1];
+                    self.book_content.read_exact(&mut byte).unwrap();
+
+                    if byte[0] == b'\n' && char_count > 0 {
+                        trace!("find newline: {}", find_newline_cnt);
+                        // 如果已经找到两个以上换行符，说明已经找到了上一行的开始
+                        if find_newline_cnt > 1 {
+                            break;
+                        }
+                        find_newline_cnt += 1;
+                    }
+                    buffer.push(byte[0]);
+                    char_count += 1;
+                }
+                // 将缓冲区反转并转换为字符串
+                buffer.reverse();
+                let line_str = String::from_utf8_lossy(&buffer).trim().to_string();
+
+                if !line_str.is_empty() {
+                    
+                    match BufRead::read_line(&mut self.book_content, &mut self.raw_line_content) {
+                        Ok(_) => {
+                            // debug!("read line: {}", self.raw_line_content);
+                            // 需要判断是否是空行, 空行的话要再次
+                            if self.raw_line_content.trim().len() != 0 {
+                                // 读取成功的一些参数初始化
+                                self.line_content.clear();
+                                self.line_content = self.raw_line_content.trim().chars().collect();
+    
+                                self.current_line_remain = self.line_content.len();
+                                self.display_window_cnt = 0;
+                                debug!("current line_char remain: {}", self.current_line_remain);
+    
+                                return Ok(());
+                            } else {
+                                self.raw_line_content.clear();
+                            }
+                        }
+                        Err(e) => {
+                            error!("read line fail: {}", e);
+                            return Err(e);
+                        }
+                    };
+                    return Ok(());
+                } else if new_position == 0 {
+                    // 到达文件开头且没有找到非空行
+                    warn!("Reached the beginning of the file without finding a non-empty line.");
+                    return Ok(());
+                }
+            }
         } else {
             return Ok(());
         }
@@ -148,7 +217,7 @@ impl BookCtrl {
                     self.line_content.len()
                 }
             };
-            warn!(
+            debug!(
                 "start_index: {}, end_index: {}\ndisplay_window_cnt: {}, current_line_remain: {}, at_line_start: {}",
                 start_index, end_index, self.display_window_cnt, self.current_line_remain, self.at_line_start
             );
@@ -200,11 +269,11 @@ impl BookCtrl {
      * @return {*}
      */
     pub fn previous_line(&mut self) {
-        warn!("previous line");
+        trace!("previous line");
         /* 如果当前行内容需要多次显示, 此时上一行移动窗口就好了,
         直到窗口移动到起始位置才会移动文件指针去上一行. */
         if self.display_window_cnt > 1 && self.at_line_start == false {
-            warn!("display_window_cnt: {}", self.display_window_cnt);
+            trace!("display_window_cnt: {}", self.display_window_cnt);
             self.display_window_cnt -= 2;
             // 设置标志, 确保在行头时的上一行能移动文件指针到上一行
             if self.display_window_cnt == 0 {
@@ -215,6 +284,27 @@ impl BookCtrl {
             self.show_line_by_term();
             self.display_window_cnt += 1;
         } else {
+            match self.read_line(-1) {
+                Ok(_) => {}
+                Err(e) => {
+                    error!("read line fail: {}", e);
+                }
+            }
+            // 减去已经显示了的字符
+            self.current_line_remain = {
+                if self.current_line_remain > self.term_width {
+                    self.current_line_remain - self.term_width
+                } else {
+                    self.current_line_remain - self.current_line_remain
+                }
+            };
+            debug!("current line remain: {}", self.current_line_remain);
+
+            // 显示内容
+            self.display_window_cnt = 0;
+            self.at_line_start = false;
+            self.show_line_by_term();
+            self.display_window_cnt += 1;
         }
     }
 
@@ -320,7 +410,7 @@ impl BookInfo {
      */
     pub fn update_progress(&mut self, fbuf: &mut BufReader<fs::File>) {
         self.progress = fbuf.stream_position().expect("get book progress error");
-        debug!("save book progress: {}", self.progress);
+        // debug!("save book progress: {}", self.progress);
         self.progress_percent = self.progress as f32 / self.filesize as f32;
     }
 }
@@ -608,6 +698,11 @@ impl EbookReader {
                 }
                 Ok(EbookReaderHotKeyType::PreviousLine) => {
                     bookctrl.previous_line();
+                    // 保存当前阅读进度
+                    self.books[book_index].update_progress(&mut bookctrl.book_content);
+                    self.to_json(&self.cfg_json_path).unwrap_or_else(|e| {
+                        error!("save book progress error: {e}");
+                    });
                     continue;
                 }
                 Ok(EbookReaderHotKeyType::Unsupport) => {
