@@ -43,6 +43,8 @@ struct BookCtrl {
     display_window_cnt: usize,
     // 终端宽度
     term_width: usize,
+    // 上一行标志, 如果移动到行头 == true, 此时再次按下上一行就移动文件指针
+    at_line_start: bool,
 }
 // 需要实现 Default 不然 BookInfo 会报错 Deserialize
 impl Default for BookCtrl {
@@ -58,6 +60,7 @@ impl Default for BookCtrl {
             current_line_remain: 0,
             display_window_cnt: 0,
             term_width: term_width!(),
+            at_line_start: false,
         }
     }
 }
@@ -75,6 +78,7 @@ impl BookCtrl {
             current_line_remain: 0,
             display_window_cnt: 0,
             term_width: term_width,
+            at_line_start: false,
         }
     }
 
@@ -144,6 +148,10 @@ impl BookCtrl {
                     self.line_content.len()
                 }
             };
+            warn!(
+                "start_index: {}, end_index: {}\ndisplay_window_cnt: {}, current_line_remain: {}, at_line_start: {}",
+                start_index, end_index, self.display_window_cnt, self.current_line_remain, self.at_line_start
+            );
             self.line_content[start_index..end_index]
                 .iter()
                 .collect::<String>()
@@ -181,10 +189,35 @@ impl BookCtrl {
 
         // 显示内容
         self.show_line_by_term();
-        self.display_window_cnt += 1;
+        // 如果当前行还有数据未显示就要移动窗口
+        if self.current_line_remain > 0 {
+            self.display_window_cnt += 1;
+        }
     }
 
-    pub fn previous_line(&mut self) {}
+    /**
+     * @description: 查看上一行, 根据窗口显示,
+     * 起始索引为0移动文件指针到上一行, 上一行如果长度为0自动再次上一行
+     * @param {*} mut
+     * @return {*}
+     */
+    pub fn previous_line(&mut self) {
+        warn!("previous line");
+        /* 如果当前行内容需要多次显示, 此时上一行移动窗口就好了,
+        直到窗口移动到起始位置才会移动文件指针去上一行. */
+        if self.display_window_cnt > 0 && self.at_line_start == false {
+            self.display_window_cnt -= 1;
+            // 设置标志, 确保在行头时的上一行能移动文件指针到上一行
+            if self.display_window_cnt == 0 {
+                self.at_line_start = true;
+            }
+            // 加上原先显示的字符
+            self.current_line_remain += self.term_width;
+            self.show_line_by_term();
+            self.display_window_cnt += 1;
+        } else {
+        }
+    }
 
     pub fn close_book(&mut self) {}
 }
