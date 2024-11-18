@@ -188,11 +188,9 @@ impl BookCtrl {
         debug!("current line remain: {}", self.current_line_remain);
 
         // 显示内容
+        self.at_line_start = false;
         self.show_line_by_term();
-        // 如果当前行还有数据未显示就要移动窗口
-        if self.current_line_remain > 0 {
-            self.display_window_cnt += 1;
-        }
+        self.display_window_cnt += 1;
     }
 
     /**
@@ -205,8 +203,9 @@ impl BookCtrl {
         warn!("previous line");
         /* 如果当前行内容需要多次显示, 此时上一行移动窗口就好了,
         直到窗口移动到起始位置才会移动文件指针去上一行. */
-        if self.display_window_cnt > 0 && self.at_line_start == false {
-            self.display_window_cnt -= 1;
+        if self.display_window_cnt > 1 && self.at_line_start == false {
+            warn!("display_window_cnt: {}", self.display_window_cnt);
+            self.display_window_cnt -= 2;
             // 设置标志, 确保在行头时的上一行能移动文件指针到上一行
             if self.display_window_cnt == 0 {
                 self.at_line_start = true;
