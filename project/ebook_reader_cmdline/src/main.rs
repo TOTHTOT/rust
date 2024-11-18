@@ -2,12 +2,12 @@ use env_logger::Builder;
 use log::{debug, error, info, warn, LevelFilter};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
+use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Seek, Write};
 use std::sync::mpsc;
 use std::{fs, thread};
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
-use termion::terminal_size;
 
 /* 宏定义 */
 // 阅读器配置信息报错位置宏
@@ -21,6 +21,173 @@ macro_rules! term_width {
     () => {
         30
     };
+}
+#[derive(Serialize, Debug)]
+struct BookCtrl {
+    // 缓冲区
+    #[serde(skip)]
+    book_content: BufReader<fs::File>,
+    // 上一次读取的行长度
+    pre_linelen: usize,
+
+    // 一行内容, 原始数据 包含换行符等
+    raw_line_content: String,
+    /* 当前行内容 raw_line_content 得来,
+    保证都是 utf-8 字符, 去除换行符等内容, raw_line_content 转换来的,
+    实现逻辑是: 当读取的一行内容大于终端宽度时, 需要分段处理,
+    每次现实的内容的窗口在 line_content 中移动, 直到移动到末尾才读取下一行数据.  */
+    line_content: Vec<char>,
+    // 当前行剩余字符数量
+    current_line_remain: usize,
+    // 已经显示的窗口数, 程序读一行时清空,显示一行数据时增加
+    display_window_cnt: usize,
+    // 终端宽度
+    term_width: usize,
+}
+// 需要实现 Default 不然 BookInfo 会报错 Deserialize
+impl Default for BookCtrl {
+    fn default() -> Self {
+        // 使用一个 `File` 的空实例或 `io::empty()` 占位
+        let dummy_file =
+            File::open("/dev/null").unwrap_or_else(|_| File::create("/dev/null").unwrap());
+        Self {
+            book_content: BufReader::new(dummy_file),
+            pre_linelen: 0,
+            raw_line_content: String::new(),
+            line_content: Vec::new(),
+            current_line_remain: 0,
+            display_window_cnt: 0,
+            term_width: term_width!(),
+        }
+    }
+}
+/* BookCtrl 的方法 */
+impl BookCtrl {
+    pub fn new(filepath: &str, term_width: usize, progress: u64) -> Self {
+        let mut book_file = BookCtrl::open_book(filepath).unwrap();
+        // 设置阅读进度
+        book_file.seek(io::SeekFrom::Start(progress)).unwrap();
+        BookCtrl {
+            book_content: BufReader::new(book_file),
+            pre_linelen: 0,
+            raw_line_content: String::new(),
+            line_content: Vec::new(),
+            current_line_remain: 0,
+            display_window_cnt: 0,
+            term_width: term_width,
+        }
+    }
+
+    fn open_book(filepath: &str) -> Result<fs::File, io::Error> {
+        // 打开文件
+        fs::File::open(filepath)
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, format!("file open fail: {}", e)))
+    }
+
+    /**
+     * @description: 读取一行数据, 刷新缓冲区
+     * @param {*} mut
+     * @param {*} read_dir -1 上一行 1 下一行, 0 刷新当前行
+     * @return {*}
+     */
+    fn read_line(&mut self, read_dir: i32) -> Result<(), io::Error> {
+        self.raw_line_content.clear();
+        if read_dir == 1 {
+            loop {
+                match BufRead::read_line(&mut self.book_content, &mut self.raw_line_content) {
+                    Ok(_) => {
+                        debug!("read line: {}", self.raw_line_content);
+                        if self.raw_line_content.trim().len() != 0 {
+                            // 读取成功的一些参数初始化
+                            self.line_content.clear();
+                            self.line_content = self.raw_line_content.trim().chars().collect();
+
+                            self.current_line_remain = self.line_content.len();
+                            self.display_window_cnt = 0;
+                            debug!("current line_char remain: {}", self.current_line_remain);
+
+                            return Ok(());
+                        } else {
+                            self.raw_line_content.clear();
+                        }
+                    }
+                    Err(e) => {
+                        error!("read line fail: {}", e);
+                        return Err(e);
+                    }
+                };
+            }
+        } else if read_dir == -1 {
+            return Ok(());
+        } else {
+            return Ok(());
+        }
+    }
+
+    /**
+     * @description: 根据 display_window_cnt 显示内容
+     * @param {*} self
+     * @return {*}
+     */
+    fn show_line_by_term(&mut self) {
+        // 清空当前行
+        print!("\r{}{}", " ".repeat(self.pre_linelen), "\r");
+        io::stdout().flush().unwrap(); // 强制刷新输出
+
+        // 根据窗口显示内容
+        let confirm_show_line = {
+            let start_index = self.term_width * self.display_window_cnt;
+            let end_index = {
+                if self.line_content.len() > self.term_width + start_index {
+                    self.term_width * (self.display_window_cnt + 1)
+                } else {
+                    self.line_content.len()
+                }
+            };
+            self.line_content[start_index..end_index]
+                .iter()
+                .collect::<String>()
+        };
+        self.pre_linelen = confirm_show_line.len();
+        // 输出一行书籍内容
+        print!("{}", confirm_show_line);
+        io::stdout().flush().unwrap(); // 强制刷新输出
+    }
+    /**
+     * @description: 显示下一行, 根据窗口xianshi
+     * @param {*} mut
+     * @return {*}
+     */
+    pub fn next_line(&mut self) {
+        if self.current_line_remain <= 0 {
+            /* 读取下一行时才清空不然在大于 term_width
+            字符情况下显示 term_width 字符后面内容时 line 没数据 */
+            match self.read_line(1) {
+                Ok(_) => {}
+                Err(e) => {
+                    error!("read line fail: {}", e);
+                }
+            }
+        }
+        // 减去已经显示了的字符
+        self.current_line_remain = {
+            if self.current_line_remain > self.term_width {
+                self.current_line_remain - self.term_width
+            } else {
+                self.current_line_remain - self.current_line_remain
+            }
+        };
+        debug!("current line remain: {}", self.current_line_remain);
+
+        // 显示内容
+        self.show_line_by_term();
+        self.display_window_cnt += 1;
+        
+    }
+
+    pub fn previous_line(&mut self) {}
+
+    pub fn close_book(&mut self) {}
 }
 /* 电子书相关信息 */
 #[derive(Serialize, Deserialize, Debug)]
@@ -39,11 +206,11 @@ struct BookInfo {
 impl BookInfo {
     pub fn new(title: String, author: String, path: String, progress_percent: f32) -> BookInfo {
         // 获取文件大小
-        let file_size = fs::metadata(path.clone()).unwrap().len();
+        let file_size = fs::metadata(&path).unwrap().len();
         BookInfo {
             title,
             author,
-            path,
+            path: path.clone(),
             progress: file_size * (progress_percent / 100.0) as u64,
             filesize: file_size,
             progress_percent,
@@ -56,7 +223,7 @@ impl BookInfo {
      * 会修改 filesize 和 progress 字段
      * @param {*} mut
      * @return {*}
-     */    
+     */
     pub fn cal_progress(&mut self) {
         let filesize = fs::metadata(&self.path).unwrap().len();
         self.filesize = filesize;
@@ -337,43 +504,6 @@ impl EbookReader {
     }
 
     /**
-     * @description: 输出一行内容, 根据窗口和缓冲区计算输出内容
-     * @return {*}
-     */
-    fn display_line_segment(
-        &mut self,
-        line_char: &[char],
-        term_width: usize,
-        display_window_cnt: &mut usize,
-        pre_linelen: &mut usize,
-    ) {
-        // 清空当前行
-        print!("\r{}{}", " ".repeat(*pre_linelen), "\r");
-        io::stdout().flush().unwrap(); // 强制刷新输出
-
-        // 计算要输出的内容
-        let confirm_show_line = {
-            let start_index = term_width * *display_window_cnt;
-            let end_index = {
-                if line_char.len() > term_width + start_index {
-                    term_width * (*display_window_cnt + 1)
-                } else {
-                    line_char.len()
-                }
-            };
-            line_char[start_index..end_index].iter().collect::<String>()
-        };
-
-        *display_window_cnt += 1;
-
-        // 输出一行书籍内容
-        print!("{}", confirm_show_line);
-        io::stdout().flush().unwrap(); // 强制刷新输出
-
-        *pre_linelen = confirm_show_line.len(); // 更新前一行长度
-    }
-
-    /**
      * @description: 读书, 根据书籍的进度读取
      * @param {*} mut
      * @return {*}
@@ -391,14 +521,6 @@ impl EbookReader {
         }
         // 会的书籍信息
         let book = &self.books[book_index];
-
-        // 打开书, 从 progress 位置开始读
-        let mut file = fs::File::open(&book.path).unwrap();
-        println!("open book: {}, progress: {}", book.path, book.progress);
-        file.seek(io::SeekFrom::Start(book.progress)).unwrap();
-        // 书籍内容加入缓冲区
-        let mut book_content = BufReader::new(file);
-        let mut pre_linelen = 0;
 
         // 创建通道实现通信 启动线程监听按键
         let (tx, rx) = mpsc::channel();
@@ -422,57 +544,10 @@ impl EbookReader {
                 }
             };
         });
+        let (_width, _height) = termion::terminal_size().unwrap();
+        let mut bookctrl = BookCtrl::new(&book.path, 30, book.progress);
 
-        // 开始读书
-        let mut line = String::new();
-        let mut current_line_remain = 0; // 当前行已经显示的字符, == 0时才允许读取下一行
-
-        /* 当前行字符, line 转换来的,
-        实现逻辑是: 当读取的一行内容大于终端宽度时, 需要分段处理,
-        每次现实的内容的窗口在 line_char 中移动, 直到移动到末尾才读取下一行数据.  */
-        let mut line_char: Vec<char> = Vec::new();
-        let mut display_window_cnt = 0; // 已经显示的窗口数, 程序读一行时清空,显示一行数据时增加
-        let (_width, _height) = terminal_size().unwrap();
-        // let term_width = width as usize; // 获取终端宽度
-        let term_width = term_width!(); // 获取终端宽度
-        debug!("term width: {}", term_width);
         loop {
-            if current_line_remain <= 0 {
-                // 读取下一行时才清空不然在大于 term_width 字符情况下显示 term_width 字符后面内容时 line 没数据
-                line.clear();
-                if BufRead::read_line(&mut book_content, &mut line).unwrap() == 0 {
-                    debug!("read book end");
-                    break;
-                }
-                // 转为字符集合
-                line_char = line.trim().chars().collect();
-                current_line_remain = 0;
-                display_window_cnt = 0;
-                current_line_remain += line_char.len();
-                debug!("current line_char remain: {current_line_remain}");
-            }
-            // 减去已经显示了的字符
-            current_line_remain = {
-                if current_line_remain > term_width {
-                    current_line_remain - term_width
-                } else {
-                    current_line_remain - current_line_remain
-                }
-            };
-            debug!("current line remain: {current_line_remain}");
-            let line_tirm = line.trim();
-            // 如果获取到的是空行直接下一行
-            if line_tirm.is_empty() {
-                continue;
-            }
-            // 显示窗口数据
-            self.display_line_segment(
-                &line_char,
-                term_width,
-                &mut display_window_cnt,
-                &mut pre_linelen,
-            );
-
             // 阻塞等待按键监听线程发来的消息
             match rx.recv() {
                 Ok(EbookReaderHotKeyType::ExitReadMode) => {
@@ -480,8 +555,9 @@ impl EbookReader {
                     break;
                 }
                 Ok(EbookReaderHotKeyType::NextLine) => {
+                    bookctrl.next_line();
                     // 保存当前阅读进度
-                    self.books[book_index].progress = book_content
+                    self.books[book_index].progress = bookctrl.book_content
                         .stream_position()
                         .expect("get book progress error");
                     debug!("save book progress: {}", self.books[book_index].progress);
