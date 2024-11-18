@@ -182,7 +182,6 @@ impl BookCtrl {
         // 显示内容
         self.show_line_by_term();
         self.display_window_cnt += 1;
-        
     }
 
     pub fn previous_line(&mut self) {}
@@ -279,6 +278,18 @@ impl BookInfo {
         );
         // 最终要减去查找的长度, 避免漏显示一个字符
         self.progress = file_start_seek - utf8_check.len() as u64;
+    }
+
+    /**
+     * @description: 更新阅读进度
+     * @param {*} mut
+     * @param {BufReader} fbuf 文件缓冲区
+     * @return {*}
+     */
+    pub fn update_progress(&mut self, fbuf: &mut BufReader<fs::File>) {
+        self.progress = fbuf.stream_position().expect("get book progress error");
+        debug!("save book progress: {}", self.progress);
+        self.progress_percent = self.progress as f32 / self.filesize as f32;
     }
 }
 
@@ -519,7 +530,7 @@ impl EbookReader {
             println!("book index error");
             return;
         }
-        // 会的书籍信息
+        // 书籍信息
         let book = &self.books[book_index];
 
         // 创建通道实现通信 启动线程监听按键
@@ -557,18 +568,14 @@ impl EbookReader {
                 Ok(EbookReaderHotKeyType::NextLine) => {
                     bookctrl.next_line();
                     // 保存当前阅读进度
-                    self.books[book_index].progress = bookctrl.book_content
-                        .stream_position()
-                        .expect("get book progress error");
-                    debug!("save book progress: {}", self.books[book_index].progress);
-                    self.books[book_index].progress_percent = self.books[book_index].progress
-                        as f32
-                        / self.books[book_index].filesize as f32;
-                    self.to_json(&self.cfg_json_path)
-                        .expect("save book progress error");
+                    self.books[book_index].update_progress(&mut bookctrl.book_content);
+                    self.to_json(&self.cfg_json_path).unwrap_or_else(|e| {
+                        error!("save book progress error: {e}");
+                    });
                     continue;
                 }
                 Ok(EbookReaderHotKeyType::PreviousLine) => {
+                    bookctrl.previous_line();
                     continue;
                 }
                 Ok(EbookReaderHotKeyType::Unsupport) => {
