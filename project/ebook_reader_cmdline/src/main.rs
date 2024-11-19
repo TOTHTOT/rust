@@ -7,10 +7,10 @@ use std::io::SeekFrom;
 use std::io::{self, BufRead, BufReader, Read, Seek, Write};
 use std::sync::mpsc;
 use std::{fs, thread};
-use termion::input::TermRead;
-use termion::raw::IntoRawMode;
 use termion::clear;
 use termion::cursor;
+use termion::input::TermRead;
+use termion::raw::IntoRawMode;
 
 /* 宏定义 */
 // 阅读器配置信息报错位置宏
@@ -31,7 +31,6 @@ macro_rules! boss_str {
         "root@am335x-evm:/media/sda1/config#"
     };
 }
-
 
 // 菜单枚举
 #[repr(i32)]
@@ -374,13 +373,19 @@ impl BookCtrl {
             // 清除 boss_str
             print!("\r{}{}", " ".repeat(boss_str.len()), "\r");
             io::stdout().flush().unwrap(); // 强制刷新输出
-            /* boss_mode 不会增加 display_window_cnt, 
+
+            /* boss_mode 不会增加 display_window_cnt,
             下一行显示完就会自增, 导致 boss_mode 使用错误的窗口位置 */
-            self.display_window_cnt -= 1; 
+            if self.display_window_cnt >= 1 {
+                // 避免一开始就进入boss_mode由于 display_window_cnt 为0导致的崩溃
+                self.display_window_cnt -= 1;
+            }
             // 显示数据
             self.show_line_by_term();
             // 还原回去
-            self.display_window_cnt += 1;
+            if self.display_window_cnt >= 1 {
+                self.display_window_cnt += 1;
+            }
             self.entry_boss_mode = false;
         } else {
             self.clean_line_by_prelen();
@@ -564,6 +569,10 @@ impl EbookReader {
         }
     }
 
+    /**
+     * @description: 清屏并移动光标
+     * @return {*}
+     */
     pub fn clear_screen() {
         print!("{}{}", clear::All, cursor::Goto(1, 1)); // 清屏并将光标移至 (1, 1)
         std::io::stdout().flush().unwrap(); // 刷新输出缓冲区
