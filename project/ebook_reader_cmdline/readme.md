@@ -22,6 +22,34 @@
   - `end`退出阅读模式;
   - `page up`上一页;
   - `page down`下一页;
+- 主页面:
+
+```shell
+root@xxxx:/mnt/d/Project/rust/project/ebook_reader_cmdline/target/debug# ./ebook_reader_cmdline
+[0]: check book
+[1]: add book
+[2]: delete book
+[3]: config book
+[4]: read book
+[5]: exit
+```
+
+- 选择书籍, 输入索引进入
+
+```shell
+4
+input book index:
+[0]path: jl.txt, progress_percent: 0.0006006877%, file_avilable: true
+```
+
+- 阅读界面和`bosskey`
+
+```shell
+# 阅读界面
+青袍男子哑然失笑，“该不会是觉得有这张符箓傍身，这小娃娃就能
+# bosskey
+root@am335x-evm:/media/sda1/config#
+```
 
 ## 待解决问题
 
