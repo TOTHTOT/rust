@@ -9,6 +9,8 @@ use std::sync::mpsc;
 use std::{fs, thread};
 use termion::input::TermRead;
 use termion::raw::IntoRawMode;
+use termion::clear;
+use termion::cursor;
 
 /* 宏定义 */
 // 阅读器配置信息报错位置宏
@@ -562,6 +564,10 @@ impl EbookReader {
         }
     }
 
+    pub fn clear_screen() {
+        print!("{}{}", clear::All, cursor::Goto(1, 1)); // 清屏并将光标移至 (1, 1)
+        std::io::stdout().flush().unwrap(); // 刷新输出缓冲区
+    }
     /**
      * @description: 将 EBookReader 转换为 JSON 文件
      * @param {*} self
@@ -781,7 +787,7 @@ impl EbookReader {
         });
         let (_width, _height) = termion::terminal_size().unwrap();
         let mut bookctrl = BookCtrl::new(&book.path, 30, book.progress);
-
+        EbookReader::clear_screen();
         loop {
             // 阻塞等待按键监听线程发来的消息
             match rx.recv() {
