@@ -2,20 +2,21 @@
   "about_soft": "Ebook Reader v1.0",
   "cfg_json_path": "./config.json",
   "menu": {
-    "0": "check book",
-    "1": "add book",
-    "2": "delete book",
-    "3": "read book",
-    "4": "exit"
+    "CheckBook": "check book",
+    "AddBook": "add book",
+    "DeleteBook": "delete book",
+    "ConfigBook": "config book",
+    "ReadBook": "read book",
+    "Exit": "exit"
   },
   "books": [
     {
       "title": "",
       "path": "jl.txt",
       "author": "",
-      "progress": 149311,
+      "progress": 2215665,
       "filesize": 37097379,
-      "progress_percent": 0.0040248395,
+      "progress_percent": 0.059725646,
       "file_avilable": true
     }
   ],

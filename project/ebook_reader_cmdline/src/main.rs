@@ -23,6 +23,46 @@ macro_rules! term_width {
         30
     };
 }
+
+// 菜单枚举
+#[repr(i32)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, PartialOrd, Ord, Copy, Clone)]
+enum EbookMenuFuncType {
+    CheckBook = 0,
+    AddBook,
+    DeleteBook,
+    ConfigBook,
+    ReadBook,
+    Exit,
+    Unsupport,
+}
+// 
+impl EbookMenuFuncType {
+    /**
+     * @description: 输入菜单编号转为对应功能类型
+     * @param {usize} num 菜单编号
+     * @return {*}
+     */    
+    pub fn from_number(num: i32) -> Self {
+        match num {
+            0 => EbookMenuFuncType::CheckBook,
+            1 => EbookMenuFuncType::AddBook,
+            2 => EbookMenuFuncType::DeleteBook,
+            3 => EbookMenuFuncType::ConfigBook,
+            4 => EbookMenuFuncType::ReadBook,
+            5 => EbookMenuFuncType::Exit,
+            _ => {
+                error!("Unsupport menu number: {}", num);
+                EbookMenuFuncType::Unsupport
+            },
+        }
+    }
+    pub fn to_number(&self) -> i32 {
+        *self as i32
+    }
+}
+
+
 #[derive(Serialize, Debug)]
 struct BookCtrl {
     // 缓冲区
@@ -456,7 +496,7 @@ enum EbookReaderWorkPage {
 struct EbookReader {
     about_soft: String,          // 软件信息, 使用方法
     cfg_json_path: String,       // 配置文件路径
-    menu: BTreeMap<i32, String>, // 菜单
+    menu: BTreeMap<EbookMenuFuncType, String>, // 菜单
     books: Vec<BookInfo>,
     read_book_flag: bool,
     workpage: EbookReaderWorkPage,
@@ -529,11 +569,12 @@ impl EbookReader {
                     workpage: EbookReaderWorkPage::MainPage,
                 };
                 // 菜单
-                reader.menu.insert(0, "check book".to_string());
-                reader.menu.insert(1, "add book".to_string());
-                reader.menu.insert(2, "delete book".to_string());
-                reader.menu.insert(3, "read book".to_string());
-                reader.menu.insert(4, "exit".to_string());
+                reader.menu.insert(EbookMenuFuncType::CheckBook, "check book".to_string());
+                reader.menu.insert(EbookMenuFuncType::AddBook, "add book".to_string());
+                reader.menu.insert(EbookMenuFuncType::DeleteBook, "delete book".to_string());
+                reader.menu.insert(EbookMenuFuncType::ConfigBook, "config book".to_string());
+                reader.menu.insert(EbookMenuFuncType::ReadBook, "read book".to_string());
+                reader.menu.insert(EbookMenuFuncType::Exit, "exit".to_string());
                 reader.to_json(config_path)?;
 
                 // 启动按键监听线程处理事件
@@ -605,7 +646,7 @@ impl EbookReader {
      */
     fn show_menu(&self) {
         for menu in &self.menu {
-            print!("[{}]: {}\n", menu.0, menu.1);
+            print!("[{}]: {}\n", menu.0.to_number(), menu.1);
         }
     }
 
@@ -738,21 +779,24 @@ impl EbookReader {
         io::stdin().read_line(&mut choice).unwrap();
 
         match choice.trim().parse::<i32>() {
-            Ok(menu_num) => match menu_num {
-                0 => {
+            Ok(menu_num) => match EbookMenuFuncType::from_number(menu_num) {
+                EbookMenuFuncType::CheckBook => {
                     self.check_save_book();
                 }
-                1 => {
+                EbookMenuFuncType::AddBook => {
                     self.add_book();
                 }
-                2 => {
+                EbookMenuFuncType::DeleteBook => {
                     debug!("delete book");
                 }
-                3 => {
+                EbookMenuFuncType::ReadBook => {
                     self.read_book();
                 }
-                4 => {
+                EbookMenuFuncType::Exit => {
                     ret = 1;
+                }
+                EbookMenuFuncType::ConfigBook => {
+                    // self.config_book();
                 }
                 _ => {
                     warn!("menu_num not supported!");
