@@ -23,6 +23,13 @@ macro_rules! term_width {
         30
     };
 }
+// 必须小于终端宽度不然可能会换行
+macro_rules! boss_str {
+    () => {
+        "root@am335x-evm:/media/sda1/config#"
+    };
+}
+
 
 // 菜单枚举
 #[repr(i32)]
@@ -85,6 +92,8 @@ struct BookCtrl {
     term_width: usize,
     // 上一行标志, 如果移动到行头 == true, 此时再次按下上一行就移动文件指针
     at_line_start: bool,
+    // 进入boss模式标志
+    entry_boss_mode: bool,
 }
 // 需要实现 Default 不然 BookInfo 会报错 Deserialize
 impl Default for BookCtrl {
@@ -101,6 +110,7 @@ impl Default for BookCtrl {
             display_window_cnt: 0,
             term_width: term_width!(),
             at_line_start: false,
+            entry_boss_mode: false,
         }
     }
 }
@@ -119,6 +129,7 @@ impl BookCtrl {
             display_window_cnt: 0,
             term_width: term_width,
             at_line_start: false,
+            entry_boss_mode: false,
         }
     }
 
@@ -355,7 +366,27 @@ impl BookCtrl {
             self.display_window_cnt += 1;
         }
     }
-
+    pub fn boss_mode(&mut self) {
+        let boss_str = boss_str!();
+        if self.entry_boss_mode {
+            // 清除 boss_str
+            print!("\r{}{}", " ".repeat(boss_str.len()), "\r");
+            io::stdout().flush().unwrap(); // 强制刷新输出
+            /* boss_mode 不会增加 display_window_cnt, 
+            下一行显示完就会自增, 导致 boss_mode 使用错误的窗口位置 */
+            self.display_window_cnt -= 1; 
+            // 显示数据
+            self.show_line_by_term();
+            // 还原回去
+            self.display_window_cnt += 1;
+            self.entry_boss_mode = false;
+        } else {
+            self.clean_line_by_prelen();
+            print!("{}", boss_str);
+            io::stdout().flush().unwrap(); // 强制刷新输出
+            self.entry_boss_mode = true;
+        }
+    }
     pub fn close_book(&mut self) {}
 }
 /* 电子书相关信息 */
@@ -467,13 +498,19 @@ impl BookInfo {
 #[allow(dead_code)]
 #[derive(Debug)]
 enum EbookReaderHotKeyType {
-    NextLine,
-    PreviousLine,
-    ExitReadMode,
+    NextLine,      // 下一行
+    PreviousLine,  // 上一行
+    ExitReadMode,  // 退出阅读模式
+    EntryBossMOde, // 进入BOSS模式
     Unsupport,
 }
 #[allow(dead_code)]
 impl EbookReaderHotKeyType {
+    /**
+     * @description: 按键转换, 已经不再使用
+     * @param {u8} key
+     * @return {*}
+     */
     pub fn transform_keytype(key: u8) -> EbookReaderHotKeyType {
         match key {
             0x0a => EbookReaderHotKeyType::NextLine,
@@ -688,6 +725,10 @@ impl EbookReader {
                     tx.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
                     return Ok(EbookReaderHotKeyType::ExitReadMode);
                 }
+                termion::event::Key::Home => {
+                    tx.send(EbookReaderHotKeyType::EntryBossMOde).unwrap();
+                    return Ok(EbookReaderHotKeyType::EntryBossMOde);
+                }
                 _ => {
                     tx.send(EbookReaderHotKeyType::Unsupport).unwrap();
                     return Err(io::Error::new(io::ErrorKind::Other, "Unsupported key"));
@@ -769,7 +810,13 @@ impl EbookReader {
                     });
                     continue;
                 }
+                Ok(EbookReaderHotKeyType::EntryBossMOde) => {
+                    // 进入boss模式
+                    bookctrl.boss_mode();
+                    continue;
+                }
                 Ok(EbookReaderHotKeyType::Unsupport) => {
+                    bookctrl.clean_line_by_prelen();
                     error!("unsupport key, exit");
                     break;
                 }
@@ -788,7 +835,9 @@ impl EbookReader {
         self.check_save_book();
 
         let mut choice = String::new();
-        io::stdin().read_line(&mut choice).expect("input book index error");
+        io::stdin()
+            .read_line(&mut choice)
+            .expect("input book index error");
 
         let book_index = choice.trim().parse::<i32>().unwrap_or_else(|e| {
             error!("parse input key error: {}", e);
@@ -857,7 +906,7 @@ impl EbookReader {
                 }
             },
             _ => {
-                warn!("please input menu number!");
+                trace!("please input menu number!");
             }
         }
         return ret;
