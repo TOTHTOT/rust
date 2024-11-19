@@ -201,15 +201,24 @@ impl BookCtrl {
     }
 
     /**
+     * @description: 根据上一次显示长度清除当前行内容
+     * @param {*} 
+     * @return {*}
+     */    
+    fn clean_line_by_prelen(& self) {
+        // 清空当前行
+        print!("\r{}{}", " ".repeat(self.pre_linelen), "\r");
+        io::stdout().flush().unwrap(); // 强制刷新输出
+    }
+
+    /**
      * @description: 根据 display_window_cnt 显示内容
      * @param {*} self
      * @return {*}
      */
     fn show_line_by_term(&mut self) {
-        // 清空当前行
-        print!("\r{}{}", " ".repeat(self.pre_linelen), "\r");
-        io::stdout().flush().unwrap(); // 强制刷新输出
-
+        self.clean_line_by_prelen();
+        
         // 根据窗口显示内容
         let confirm_show_line = {
             let start_index = self.term_width * self.display_window_cnt;
@@ -297,8 +306,7 @@ impl BookCtrl {
             self.display_window_cnt = {
                 if self.line_content.len() > self.term_width {
                     self.line_content.len() / self.term_width
-                }
-                else {
+                } else {
                     0
                 }
             };
@@ -685,6 +693,7 @@ impl EbookReader {
             // 阻塞等待按键监听线程发来的消息
             match rx.recv() {
                 Ok(EbookReaderHotKeyType::ExitReadMode) => {
+                    bookctrl.clean_line_by_prelen();
                     debug!("recv exit read mode");
                     break;
                 }
