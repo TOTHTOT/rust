@@ -728,22 +728,30 @@ impl EbookReader {
 
         for c in stdin.keys() {
             match c.unwrap() {
-                termion::event::Key::PageDown => {
-                    tx.send(EbookReaderHotKeyType::NextLine).unwrap();
-                    return Ok(EbookReaderHotKeyType::NextLine);
-                }
-                termion::event::Key::PageUp => {
-                    tx.send(EbookReaderHotKeyType::PreviousLine).unwrap();
-                    return Ok(EbookReaderHotKeyType::PreviousLine);
-                }
-                termion::event::Key::End => {
-                    tx.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
-                    return Ok(EbookReaderHotKeyType::ExitReadMode);
-                }
-                termion::event::Key::Home => {
-                    tx.send(EbookReaderHotKeyType::EntryBossMOde).unwrap();
-                    return Ok(EbookReaderHotKeyType::EntryBossMOde);
-                }
+                termion::event::Key::Char(ch) => {
+                    match ch {
+                        'j' => {
+                            tx.send(EbookReaderHotKeyType::PreviousLine).unwrap();
+                            return Ok(EbookReaderHotKeyType::PreviousLine);
+                        },
+                        'k' => {
+                            tx.send(EbookReaderHotKeyType::NextLine).unwrap();
+                            return Ok(EbookReaderHotKeyType::NextLine);
+                        },
+                        'l' => {
+                            tx.send(EbookReaderHotKeyType::EntryBossMOde).unwrap();
+                            return Ok(EbookReaderHotKeyType::EntryBossMOde);
+                        },
+                        'p' => {
+                            tx.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
+                            return Ok(EbookReaderHotKeyType::ExitReadMode);
+                        }
+                        _=> {
+                            tx.send(EbookReaderHotKeyType::Unsupport).unwrap();
+                            return Err(io::Error::new(io::ErrorKind::Other, "Unsupported key"));
+                        }
+                    }
+                },
                 _ => {
                     tx.send(EbookReaderHotKeyType::Unsupport).unwrap();
                     return Err(io::Error::new(io::ErrorKind::Other, "Unsupported key"));
