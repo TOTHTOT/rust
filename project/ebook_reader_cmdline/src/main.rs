@@ -36,13 +36,13 @@ enum EbookMenuFuncType {
     Exit,
     Unsupport,
 }
-// 
+//
 impl EbookMenuFuncType {
     /**
      * @description: 输入菜单编号转为对应功能类型
      * @param {usize} num 菜单编号
      * @return {*}
-     */    
+     */
     pub fn from_number(num: i32) -> Self {
         match num {
             0 => EbookMenuFuncType::CheckBook,
@@ -54,14 +54,13 @@ impl EbookMenuFuncType {
             _ => {
                 error!("Unsupport menu number: {}", num);
                 EbookMenuFuncType::Unsupport
-            },
+            }
         }
     }
     pub fn to_number(&self) -> i32 {
         *self as i32
     }
 }
-
 
 #[derive(Serialize, Debug)]
 struct BookCtrl {
@@ -242,10 +241,10 @@ impl BookCtrl {
 
     /**
      * @description: 根据上一次显示长度清除当前行内容
-     * @param {*} 
+     * @param {*}
      * @return {*}
-     */    
-    fn clean_line_by_prelen(& self) {
+     */
+    fn clean_line_by_prelen(&self) {
         // 清空当前行
         print!("\r{}{}", " ".repeat(self.pre_linelen), "\r");
         io::stdout().flush().unwrap(); // 强制刷新输出
@@ -258,7 +257,7 @@ impl BookCtrl {
      */
     fn show_line_by_term(&mut self) {
         self.clean_line_by_prelen();
-        
+
         // 根据窗口显示内容
         let confirm_show_line = {
             let start_index = self.term_width * self.display_window_cnt;
@@ -494,8 +493,8 @@ enum EbookReaderWorkPage {
 /* 电子书阅读器 */
 #[derive(Serialize, Deserialize, Debug)]
 struct EbookReader {
-    about_soft: String,          // 软件信息, 使用方法
-    cfg_json_path: String,       // 配置文件路径
+    about_soft: String,                        // 软件信息, 使用方法
+    cfg_json_path: String,                     // 配置文件路径
     menu: BTreeMap<EbookMenuFuncType, String>, // 菜单
     books: Vec<BookInfo>,
     read_book_flag: bool,
@@ -569,12 +568,24 @@ impl EbookReader {
                     workpage: EbookReaderWorkPage::MainPage,
                 };
                 // 菜单
-                reader.menu.insert(EbookMenuFuncType::CheckBook, "check book".to_string());
-                reader.menu.insert(EbookMenuFuncType::AddBook, "add book".to_string());
-                reader.menu.insert(EbookMenuFuncType::DeleteBook, "delete book".to_string());
-                reader.menu.insert(EbookMenuFuncType::ConfigBook, "config book".to_string());
-                reader.menu.insert(EbookMenuFuncType::ReadBook, "read book".to_string());
-                reader.menu.insert(EbookMenuFuncType::Exit, "exit".to_string());
+                reader
+                    .menu
+                    .insert(EbookMenuFuncType::CheckBook, "check book".to_string());
+                reader
+                    .menu
+                    .insert(EbookMenuFuncType::AddBook, "add book".to_string());
+                reader
+                    .menu
+                    .insert(EbookMenuFuncType::DeleteBook, "delete book".to_string());
+                reader
+                    .menu
+                    .insert(EbookMenuFuncType::ConfigBook, "config book".to_string());
+                reader
+                    .menu
+                    .insert(EbookMenuFuncType::ReadBook, "read book".to_string());
+                reader
+                    .menu
+                    .insert(EbookMenuFuncType::Exit, "exit".to_string());
                 reader.to_json(config_path)?;
 
                 // 启动按键监听线程处理事件
@@ -772,6 +783,48 @@ impl EbookReader {
         thread.join().unwrap();
     }
 
+    fn config_book(&mut self) {
+        println!("select book to config");
+        self.check_save_book();
+
+        let mut choice = String::new();
+        io::stdin().read_line(&mut choice).expect("input book index error");
+
+        let book_index = choice.trim().parse::<i32>().unwrap_or_else(|e| {
+            error!("parse input key error: {}", e);
+            -1
+        });
+        // 验证选择索引是否正确, 错误的话退出
+        if (book_index == -1 || book_index < self.books.len() as i32)
+            && self.books[book_index as usize].file_avilable == true
+        {
+            println!("input book progress");
+            let mut progress = String::new();
+            match io::stdin().read_line(&mut progress) {
+                Ok(_) => {
+                    // 验证输入进度是否正确, 错误的话退出
+                    let progress_percent = progress.trim().parse::<f32>().unwrap_or_else(|e| {
+                        error!("parse input key error: {}", e);
+                        -1.0
+                    });
+                    if progress_percent >= 0.0 && progress_percent <= 100.0 {
+                        self.books[book_index as usize].progress_percent = progress_percent;
+                        self.books[book_index as usize].cal_progress();
+                    } else {
+                        error!("progress percent error: {}", progress_percent);
+                        return;
+                    }
+                }
+                Err(e) => {
+                    error!("get input key error: {}", e);
+                    return;
+                }
+            }
+        } else {
+            error!("book index error: {}", book_index);
+            return;
+        }
+    }
     pub fn run(&mut self) -> i32 {
         self.show_menu();
         let mut ret = 0;
@@ -796,7 +849,7 @@ impl EbookReader {
                     ret = 1;
                 }
                 EbookMenuFuncType::ConfigBook => {
-                    // self.config_book();
+                    self.config_book();
                 }
                 _ => {
                     warn!("menu_num not supported!");
