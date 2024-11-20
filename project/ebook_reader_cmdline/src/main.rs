@@ -356,7 +356,11 @@ impl BookCtrl {
             // 上一行的 display_window_cnt 特殊处理, 上一行的内容长度大于终端宽度时, display_window_cnt 要为窗口最后一个
             self.display_window_cnt = {
                 if self.line_content.len() > self.term_width {
-                    self.line_content.len() / self.term_width
+                    if self.line_content.len() % self.term_width == 0 {
+                        (self.line_content.len() / self.term_width) - 1
+                    } else {
+                        self.line_content.len() / self.term_width
+                    }
                 } else {
                     0
                 }
@@ -728,28 +732,26 @@ impl EbookReader {
 
         for c in stdin.keys() {
             match c.unwrap() {
-                termion::event::Key::Char(ch) => {
-                    match ch {
-                        'j' => {
-                            tx.send(EbookReaderHotKeyType::PreviousLine).unwrap();
-                            return Ok(EbookReaderHotKeyType::PreviousLine);
-                        },
-                        'k' => {
-                            tx.send(EbookReaderHotKeyType::NextLine).unwrap();
-                            return Ok(EbookReaderHotKeyType::NextLine);
-                        },
-                        'l' => {
-                            tx.send(EbookReaderHotKeyType::EntryBossMOde).unwrap();
-                            return Ok(EbookReaderHotKeyType::EntryBossMOde);
-                        },
-                        'p' => {
-                            tx.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
-                            return Ok(EbookReaderHotKeyType::ExitReadMode);
-                        }
-                        _=> {
-                            tx.send(EbookReaderHotKeyType::Unsupport).unwrap();
-                            return Err(io::Error::new(io::ErrorKind::Other, "Unsupported key"));
-                        }
+                termion::event::Key::Char(ch) => match ch {
+                    'j' => {
+                        tx.send(EbookReaderHotKeyType::PreviousLine).unwrap();
+                        return Ok(EbookReaderHotKeyType::PreviousLine);
+                    }
+                    'k' => {
+                        tx.send(EbookReaderHotKeyType::NextLine).unwrap();
+                        return Ok(EbookReaderHotKeyType::NextLine);
+                    }
+                    'l' => {
+                        tx.send(EbookReaderHotKeyType::EntryBossMOde).unwrap();
+                        return Ok(EbookReaderHotKeyType::EntryBossMOde);
+                    }
+                    'p' => {
+                        tx.send(EbookReaderHotKeyType::ExitReadMode).unwrap();
+                        return Ok(EbookReaderHotKeyType::ExitReadMode);
+                    }
+                    _ => {
+                        tx.send(EbookReaderHotKeyType::Unsupport).unwrap();
+                        return Err(io::Error::new(io::ErrorKind::Other, "Unsupported key"));
                     }
                 },
                 _ => {
