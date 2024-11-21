@@ -387,7 +387,7 @@ impl BookCtrl {
             // 显示数据
             self.show_line_by_term();
             // 还原回去
-            if self.display_window_cnt >= 1 {
+            if self.display_window_cnt + 1>= 1 {
                 self.display_window_cnt += 1;
             }
             self.entry_boss_mode = false;
