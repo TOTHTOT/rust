@@ -1,0 +1,10 @@
+[package]
+name = "cli_test"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+crossterm = "0.28.1"
+cursive = "0.21.1"
+dialoguer = "0.11.0"
+ratatui = "0.29.0"
