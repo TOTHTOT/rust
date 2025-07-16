@@ -4,8 +4,8 @@ use eframe::egui;
 pub struct AppState {
     pub current_page: Page,
     pub user: Option<User>,
-    pub login_username: String,  // 修正：将logo_username改为login_username
-    pub login_password: String,  // 修正：将logo_password改为login_password
+    pub login_username: String,
+    pub login_password: String,
     pub login_error: Option<String>,
 }
 
