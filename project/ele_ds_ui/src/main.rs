@@ -6,6 +6,7 @@ mod app_state;
 mod login;
 mod dashboard;
 mod settings;
+mod communicate_service;
 
 // 使用模块中的内容
 use app_state::{AppState, Page, User};
